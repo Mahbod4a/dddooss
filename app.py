@@ -1985,8 +1985,8 @@ if __name__ == "__main__":
             print("error: --token required", file=sys.stderr); sys.exit(1)
         run_agent(args.c2, args.token, args.workers)
     else:
+        # pass import-string "app:app" ke uvicorn supaya workers>1 & reload work.
         import uvicorn
-        ssl_kwargs = {}
-        if C2_TLS_CERT and C2_TLS_KEY:
-            ssl_kwargs = {"ssl_certfile": C2_TLS_CERT, "ssl_keyfile": C2_TLS_KEY}
-        uvicorn.run(app, host=C2_HOST, port=C2_PORT, workers=args.workers, **ssl_kwargs)
+        uvicorn.run("app:app", host=C2_HOST, port=C2_PORT,
+                    workers=args.workers, log_level="info")
+        
